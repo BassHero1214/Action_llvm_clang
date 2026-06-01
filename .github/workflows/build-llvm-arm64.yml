@@ -205,7 +205,7 @@ jobs:
 
           # Use stage1 clang + lld as the compiler/linker
           export PATH="$STAGE1_INSTALL/bin:$PATH"
-          export LD_LIBRARY_PATH="$STAGE1_INSTALL/lib:$LD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$STAGE1_INSTALL/lib:${LD_LIBRARY_PATH:-}"
 
           # Stage 2: full optimized build with ThinLTO + compiler-rt + libc++
           cmake -S "$LLVM_SOURCE_DIR/llvm" \
