@@ -267,7 +267,7 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;X86" \
             \
             `# ---- LLVM projects + runtimes ----` \
-            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;compiler-rt;lldb;polly" \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;lldb;polly" \
             -DLLVM_ENABLE_RUNTIMES="compiler-rt;libcxx;libcxxabi;libunwind" \
             \
             `# ---- ThinLTO for the toolchain itself ----` \
