@@ -66,12 +66,6 @@ cmake -S "$LLVM_SOURCE_DIR/llvm" \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     \
-    `# ---- Kernel-optimized C/C++ flags ----` \
-    -DCMAKE_C_FLAGS_RELEASE="-O3 -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden -DNDEBUG" \
-    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden -DNDEBUG" \
-    -DCMAKE_EXE_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections -fuse-ld=lld" \
-    -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections -fuse-ld=lld" \
-    \
     `# ---- LLVM targets ----` \
     -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
     -DLLVM_DEFAULT_TARGET_TRIPLE="$TARGET_TRIPLE" \
