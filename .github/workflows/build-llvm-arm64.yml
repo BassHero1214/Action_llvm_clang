@@ -29,7 +29,7 @@ on:
         description: "Enable PGO (Profile-Guided Optimization)"
         required: false
         type: boolean
-        default: true
+        default: false
       enable_bolt:
         description: "Enable BOLT post-link optimizer"
         required: false
@@ -161,8 +161,8 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             \
             `# ---- Compiler settings ----` \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             \
@@ -171,11 +171,9 @@ jobs:
             -DLLVM_DEFAULT_TARGET_TRIPLE="$LLVM_TRIPLE" \
             \
             `# ---- LLVM projects to build ----` \
-            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;compiler-rt;lldb;polly" \
-            -DLLVM_ENABLE_RUNTIMES="compiler-rt;libcxx;libcxxabi;libunwind" \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;lldb;polly" \
             \
             `# ---- Kernel-oriented optimization flags ----` \
-            -DLLVM_ENABLE_LTO="Thin" \
             -DLLVM_ENABLE_PIC=ON \
             -DLLVM_ENABLE_PLUGINS=ON \
             -DLLVM_ENABLE_TERMINFO=ON \
@@ -190,11 +188,10 @@ jobs:
             -DLLVM_ENABLE_BOLT=${{ inputs.enable_bolt && 'ON' || 'OFF' }} \
             \
             `# ---- Linker settings ----` \
-            -DLLVM_USE_LINKER=lld \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
             -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
             \
-            `# ---- Reduce binary size (kernel toolchain focus) ----` \
+            `# ---- Slim build (kernel toolchain focus) ----` \
             -DLLVM_BUILD_LLVM_DYLIB=ON \
             -DLLVM_LINK_LLVM_DYLIB=ON \
             -DLLVM_INCLUDE_TESTS=OFF \
@@ -205,12 +202,6 @@ jobs:
             -DLLVM_ENABLE_SPHINX=OFF \
             -DLLVM_ENABLE_DOXYGEN=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF \
-            \
-            `# ---- Kernel-specific: enable sanitizers ----` \
-            -DCOMPILER_RT_BUILD_SANITIZERS=ON \
-            -DCOMPILER_RT_BUILD_XRAY=ON \
-            -DCOMPILER_RT_BUILD_LIBFUZZER=ON \
-            -DCOMPILER_RT_BUILD_PROFILE=ON \
             \
             `# ---- Assertions off for Release ----` \
             -DLLVM_ENABLE_ASSERTIONS=OFF \
