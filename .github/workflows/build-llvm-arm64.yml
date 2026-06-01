@@ -118,24 +118,55 @@ jobs:
             ccache-llvm-arm64-${{ env.LLVM_VERSION }}-
 
       # ----------------------------------------------------------
-      # 3. Clone LLVM project
+      # 3. Restore LLVM source cache (skip clone if cached)
       # ----------------------------------------------------------
-      - name: Clone LLVM project
+      - name: Restore LLVM source cache
+        id: llvm-src-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/llvm-project
+          key: llvm-src-${{ env.LLVM_VERSION }}
+
+      # ----------------------------------------------------------
+      # 4. Clone or restore LLVM project
+      # ----------------------------------------------------------
+      - name: Clone/update LLVM project
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$LLVM_VERSION" \
-            https://github.com/llvm/llvm-project.git \
-            "$GITHUB_WORKSPACE/llvm-project"
+          LLVM_DIR="$GITHUB_WORKSPACE/llvm-project"
 
-          cd "$GITHUB_WORKSPACE/llvm-project"
+          if [ "${{ steps.llvm-src-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "::notice:: LLVM source cache HIT - skipping clone"
+            cd "$LLVM_DIR"
+            # Ensure we're on the right commit
+            git fetch --depth 1 origin "$LLVM_VERSION"
+            git checkout FETCH_HEAD
+          else
+            echo "::notice:: LLVM source cache MISS - cloning..."
+            git clone --depth 1 --branch "$LLVM_VERSION" \
+              https://github.com/llvm/llvm-project.git \
+              "$LLVM_DIR"
+          fi
+
+          cd "$LLVM_DIR"
           echo "LLVM_SOURCE_DIR=$PWD" >> "$GITHUB_ENV"
           echo "LLVM_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
+      # ----------------------------------------------------------
+      # 5. Restore Stage 1 cache (skip GCC bootstrap if cached)
+      # ----------------------------------------------------------
+      - name: Restore Stage 1 cache
+        id: stage1-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/stage1-install
+          key: stage1-llvm-${{ env.LLVM_VERSION }}
+
       # ==========================================================
-      # STAGE 1: GCC Bootstrap Build
-      # Fast build with system GCC → produces clang + lld
+      # STAGE 1: GCC Bootstrap Build (SKIPPED if cached)
       # ==========================================================
       - name: "Stage 1: Configure (GCC bootstrap)"
+        if: steps.stage1-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
 
@@ -174,6 +205,7 @@ jobs:
             -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF
 
       - name: "Stage 1: Build clang + lld (GCC)"
+        if: steps.stage1-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           cd "$STAGE1_DIR"
@@ -182,11 +214,19 @@ jobs:
             llvm-link opt llc llvm-as llvm-dis
 
       - name: "Stage 1: Install"
+        if: steps.stage1-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           cd "$STAGE1_DIR"
           ninja install
           echo "Stage 1 toolchain installed to $STAGE1_INSTALL"
+
+      - name: "Stage 1: Use cached build"
+        if: steps.stage1-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "::notice:: Stage 1 cache HIT - skipping bootstrap build"
+          echo "STAGE1_DIR=$GITHUB_WORKSPACE/stage1" >> "$GITHUB_ENV"
+          echo "STAGE1_INSTALL=$GITHUB_WORKSPACE/stage1-install" >> "$GITHUB_ENV"
 
       # ==========================================================
       # STAGE 2: Clang + LTO Optimized Build
@@ -418,6 +458,23 @@ jobs:
         with:
           path: /ccache
           key: ccache-llvm-arm64-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-${{ github.run_id }}
+
+      # ----------------------------------------------------------
+      # Save caches for future runs (skip clone + Stage 1 rebuild)
+      # ----------------------------------------------------------
+      - name: Save LLVM source cache
+        uses: actions/cache/save@v4
+        if: always() && steps.llvm-src-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ github.workspace }}/llvm-project
+          key: llvm-src-${{ env.LLVM_VERSION }}
+
+      - name: Save Stage 1 cache
+        uses: actions/cache/save@v4
+        if: always() && steps.stage1-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ github.workspace }}/stage1-install
+          key: stage1-llvm-${{ env.LLVM_VERSION }}
 
       # ----------------------------------------------------------
       # Print summary
