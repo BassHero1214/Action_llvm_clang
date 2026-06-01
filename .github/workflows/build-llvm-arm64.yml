@@ -160,7 +160,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/stage1-install
-          key: stage1-llvm-${{ env.LLVM_VERSION }}-v2
+          key: stage1-llvm-${{ env.LLVM_VERSION }}-v3
 
       # ==========================================================
       # STAGE 1: GCC Bootstrap Build (SKIPPED if cached)
@@ -189,7 +189,6 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;X86" \
-            -DLLVM_DEFAULT_TARGET_TRIPLE="$LLVM_TRIPLE" \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DLLVM_ENABLE_PIC=ON \
             -DLLVM_ENABLE_ZSTD=ON \
@@ -467,7 +466,7 @@ jobs:
         if: always() && steps.stage1-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ github.workspace }}/stage1-install
-          key: stage1-llvm-${{ env.LLVM_VERSION }}-v2
+          key: stage1-llvm-${{ env.LLVM_VERSION }}-v3
 
       # ----------------------------------------------------------
       # Print summary
