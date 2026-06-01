@@ -54,7 +54,7 @@ jobs:
   # with kernel-oriented optimizations
   # ============================================================
   build-llvm:
-    name: "Build LLVM ${{ env.LLVM_VERSION }} for ${{ env.TARGET_ARCH }}"
+    name: "Build LLVM ${{ inputs.llvm_version || 'llvmorg-19.1.7' }} for AArch64"
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
@@ -363,20 +363,23 @@ jobs:
       # 9. Package & Upload artifact
       # ----------------------------------------------------------
       - name: Package toolchain
+        id: package
         if: ${{ inputs.upload_artifact }}
         run: |
           set -euo pipefail
-          ARCHIVE="$GITHUB_WORKSPACE/${{ env.ARTIFACT_NAME }}-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}.tar.xz"
-          tar -cJf "$ARCHIVE" -C "$INSTALL_DIR" .
-          echo "ARCHIVE_PATH=$ARCHIVE" >> "$GITHUB_ENV"
-          ls -lh "$ARCHIVE"
+          ARCHIVE_NAME="${{ env.ARTIFACT_NAME }}-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}"
+          ARCHIVE_PATH="$GITHUB_WORKSPACE/${ARCHIVE_NAME}.tar.xz"
+          tar -cJf "$ARCHIVE_PATH" -C "$INSTALL_DIR" .
+          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "archive_name=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
+          ls -lh "$ARCHIVE_PATH"
 
       - name: Upload artifact
         if: ${{ inputs.upload_artifact }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}
-          path: ${{ env.ARCHIVE_PATH }}
+          name: ${{ steps.package.outputs.archive_name }}
+          path: ${{ steps.package.outputs.archive_path }}
           retention-days: 30
           compression-level: 0
 
@@ -405,8 +408,9 @@ jobs:
           echo "PGO            : ${{ inputs.enable_pgo && 'YES' || 'NO' }}"
           echo "BOLT           : ${{ inputs.enable_bolt && 'YES' || 'NO' }}"
           echo "Install Dir    : $INSTALL_DIR"
-          if [ -n "${ARCHIVE_PATH:-}" ]; then
-            echo "Artifact       : $ARCHIVE_PATH ($(du -h "$ARCHIVE_PATH" | cut -f1))"
+          ARCHIVE_FILE="$GITHUB_WORKSPACE/$ARTIFACT_NAME-$LLVM_VERSION-$BUILD_TYPE.tar.xz"
+          if [ -f "$ARCHIVE_FILE" ]; then
+            echo "Artifact       : $ARCHIVE_FILE ($(du -h "$ARCHIVE_FILE" | cut -f1))"
           fi
           echo "::endgroup::"
 
