@@ -82,7 +82,6 @@ cmake -S "$LLVM_SOURCE_DIR/llvm" \
     \
     `# ---- Kernel-oriented optimizations ----` \
     -DLLVM_ENABLE_LTO="Thin" \
-    -DLLVM_ENABLE_LLD=ON \
     -DLLVM_ENABLE_PIC=ON \
     -DLLVM_ENABLE_PLUGINS=ON \
     -DLLVM_ENABLE_ZSTD=ON \
