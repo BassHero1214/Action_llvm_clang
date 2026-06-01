@@ -109,7 +109,7 @@ cmake -S "$LLVM_SOURCE_DIR/llvm" \
 echo "[3/5] Building LLVM/Clang (jobs=$JOBS)..."
 cd "$BUILD_DIR"
 ninja -j"$JOBS" \
-    clang clang++ clang-tidy clang-format clangd \
+    clang clang-tidy clang-format clangd \
     lld \
     llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-ranlib \
     llvm-readelf llvm-size llvm-strings llvm-strip \

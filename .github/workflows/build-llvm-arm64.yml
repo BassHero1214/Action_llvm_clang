@@ -216,7 +216,6 @@ jobs:
           cd "$BUILD_DIR"
           ninja -j"$(nproc)" \
             clang \
-            clang++ \
             clang-tidy \
             clang-format \
             clangd \
