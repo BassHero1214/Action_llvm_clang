@@ -80,6 +80,8 @@ jobs:
             libxml2-dev \
             libedit-dev \
             libncurses5-dev \
+            libc++-dev \
+            libc++abi-dev \
             swig \
             libffi-dev \
             pkg-config \
@@ -166,7 +168,7 @@ jobs:
             \
             `# ---- Kernel-tuning: C/C++ flags ----` \
             -DCMAKE_C_FLAGS_RELEASE="-O3 -march=native -mtune=native -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden -DNDEBUG" \
-            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -march=native -mtune=native -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden -DNDEBUG -stdlib=libc++" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -march=native -mtune=native -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden -DNDEBUG" \
             -DCMAKE_EXE_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections -fuse-ld=lld" \
             -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections -fuse-ld=lld" \
             \
