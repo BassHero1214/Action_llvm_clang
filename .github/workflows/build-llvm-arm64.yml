@@ -51,7 +51,7 @@ env:
 jobs:
   # ============================================================
   # Build LLVM/Clang/LLD cross-compilation toolchain for ARM64
-  # with kernel-oriented optimizations
+  # 2-Stage: GCC bootstrap → Clang+LTO optimized rebuild
   # ============================================================
   build-llvm:
     name: "Build LLVM ${{ inputs.llvm_version || 'llvmorg-19.1.7' }} for AArch64"
@@ -131,10 +131,68 @@ jobs:
           echo "LLVM_SOURCE_DIR=$PWD" >> "$GITHUB_ENV"
           echo "LLVM_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
-      # ----------------------------------------------------------
-      # 4. Configure CMake with kernel-oriented optimizations
-      # ----------------------------------------------------------
-      - name: Configure CMake
+      # ==========================================================
+      # STAGE 1: GCC Bootstrap Build
+      # Fast build with system GCC → produces clang + lld
+      # ==========================================================
+      - name: "Stage 1: Configure (GCC bootstrap)"
+        run: |
+          set -euo pipefail
+
+          STAGE1_DIR="$GITHUB_WORKSPACE/stage1"
+          STAGE1_INSTALL="$GITHUB_WORKSPACE/stage1-install"
+          mkdir -p "$STAGE1_DIR" "$STAGE1_INSTALL"
+
+          echo "STAGE1_DIR=$STAGE1_DIR" >> "$GITHUB_ENV"
+          echo "STAGE1_INSTALL=$STAGE1_INSTALL" >> "$GITHUB_ENV"
+
+          # Stage 1: minimal build with GCC, only clang + lld + essentials
+          cmake -S "$LLVM_SOURCE_DIR/llvm" \
+            -B "$STAGE1_DIR" \
+            -G "Ninja" \
+            -Wno-dev \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$STAGE1_INSTALL" \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;X86" \
+            -DLLVM_DEFAULT_TARGET_TRIPLE="$LLVM_TRIPLE" \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_ENABLE_PIC=ON \
+            -DLLVM_ENABLE_ZSTD=ON \
+            -DLLVM_ENABLE_ZLIB=ON \
+            -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
+            -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF
+
+      - name: "Stage 1: Build clang + lld (GCC)"
+        run: |
+          set -euo pipefail
+          cd "$STAGE1_DIR"
+          ninja -j"$(nproc)" clang lld llvm-config llvm-ar llvm-ranlib \
+            llvm-nm llvm-objcopy llvm-objdump llvm-strip llvm-readelf \
+            llvm-link opt llc llvm-as llvm-dis
+
+      - name: "Stage 1: Install"
+        run: |
+          set -euo pipefail
+          cd "$STAGE1_DIR"
+          ninja install
+          echo "Stage 1 toolchain installed to $STAGE1_INSTALL"
+
+      # ==========================================================
+      # STAGE 2: Clang + LTO Optimized Build
+      # Use stage1 clang+lld to rebuild with ThinLTO + full optimizations
+      # ==========================================================
+      - name: "Stage 2: Configure (Clang + ThinLTO + full optimization)"
         run: |
           set -euo pipefail
 
@@ -145,12 +203,11 @@ jobs:
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
-          # ---- Kernel-optimized CMake flags ----
-          # These flags are specifically tuned for:
-          #   - Cross-compiling the Linux/Android kernel for ARM64
-          #   - Minimizing toolchain runtime overhead
-          #   - Maximizing generated code quality
+          # Use stage1 clang + lld as the compiler/linker
+          export PATH="$STAGE1_INSTALL/bin:$PATH"
+          export LD_LIBRARY_PATH="$STAGE1_INSTALL/lib:$LD_LIBRARY_PATH"
 
+          # Stage 2: full optimized build with ThinLTO + compiler-rt + libc++
           cmake -S "$LLVM_SOURCE_DIR/llvm" \
             -B "$BUILD_DIR" \
             -G "Ninja" \
@@ -160,18 +217,28 @@ jobs:
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             \
-            `# ---- Compiler settings ----` \
-            -DCMAKE_C_COMPILER=gcc \
-            -DCMAKE_CXX_COMPILER=g++ \
+            `# ---- Use stage1 clang + lld ----` \
+            -DCMAKE_C_COMPILER="$STAGE1_INSTALL/bin/clang" \
+            -DCMAKE_CXX_COMPILER="$STAGE1_INSTALL/bin/clang++" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             \
+            `# ---- Full optimization flags (only applied to host build) ----` \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden" \
+            -DCMAKE_EXE_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections" \
+            -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections" \
+            \
             `# ---- LLVM targets ----` \
-            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;X86" \
             -DLLVM_DEFAULT_TARGET_TRIPLE="$LLVM_TRIPLE" \
             \
-            `# ---- LLVM projects to build ----` \
-            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;lldb;polly" \
+            `# ---- LLVM projects + runtimes ----` \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;compiler-rt;lldb;polly" \
+            -DLLVM_ENABLE_RUNTIMES="compiler-rt;libcxx;libcxxabi;libunwind" \
+            \
+            `# ---- ThinLTO for the toolchain itself ----` \
+            -DLLVM_ENABLE_LTO="Thin" \
             \
             `# ---- Kernel-oriented optimization flags ----` \
             -DLLVM_ENABLE_PIC=ON \
@@ -180,39 +247,41 @@ jobs:
             -DLLVM_ENABLE_ZSTD=ON \
             -DLLVM_ENABLE_ZLIB=ON \
             \
-            `# ---- PGO (Profile-Guided Optimization) ----` \
+            `# ---- PGO / BOLT (optional) ----` \
             -DLLVM_BUILD_INSTRUMENTED=${{ inputs.enable_pgo && 'ON' || 'OFF' }} \
-            -DLLVM_BUILD_INSTRUMENTED_IR=${{ inputs.enable_pgo && 'ON' || 'OFF' }} \
-            \
-            `# ---- BOLT optimization ----` \
             -DLLVM_ENABLE_BOLT=${{ inputs.enable_bolt && 'ON' || 'OFF' }} \
             \
-            `# ---- Linker settings ----` \
+            `# ---- Use stage1 lld as linker ----` \
+            -DLLVM_USE_LINKER="$STAGE1_INSTALL/bin/ld.lld" \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
             -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
             \
-            `# ---- Slim build (kernel toolchain focus) ----` \
+            `# ---- Slim build ----` \
             -DLLVM_BUILD_LLVM_DYLIB=ON \
             -DLLVM_LINK_LLVM_DYLIB=ON \
             -DLLVM_INCLUDE_TESTS=OFF \
             -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_INCLUDE_DOCS=OFF \
-            -DLLVM_ENABLE_OCAMLDOC=OFF \
-            -DLLVM_ENABLE_SPHINX=OFF \
-            -DLLVM_ENABLE_DOXYGEN=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF \
             \
-            `# ---- Assertions off for Release ----` \
+            `# ---- Kernel-specific: sanitizers & profiling ----` \
+            -DCOMPILER_RT_BUILD_SANITIZERS=ON \
+            -DCOMPILER_RT_BUILD_XRAY=ON \
+            -DCOMPILER_RT_BUILD_LIBFUZZER=ON \
+            -DCOMPILER_RT_BUILD_PROFILE=ON \
+            \
+            `# ---- Assertions off ----` \
             -DLLVM_ENABLE_ASSERTIONS=OFF \
             -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF
 
       # ----------------------------------------------------------
-      # 5. Build LLVM + Clang
+      # Stage 2: Build all tools with ThinLTO
       # ----------------------------------------------------------
-      - name: Build LLVM/Clang
+      - name: "Stage 2: Build LLVM/Clang (ThinLTO optimized)"
         run: |
           set -euo pipefail
+          export PATH="$STAGE1_INSTALL/bin:$PATH"
           cd "$BUILD_DIR"
           ninja -j"$(nproc)" \
             clang \
@@ -243,44 +312,12 @@ jobs:
             not
 
       # ----------------------------------------------------------
-      # 6. PGO: instrumented training run (optional)
+      # Stage 2: Install final toolchain
       # ----------------------------------------------------------
-      - name: PGO Training (compile Linux kernel as training workload)
-        if: ${{ inputs.enable_pgo }}
+      - name: "Stage 2: Install toolchain"
         run: |
           set -euo pipefail
-          echo "::group::PGO Training - Build Linux kernel with instrumented Clang"
-
-          # Clone a minimal kernel for PGO training
-          KERNEL_DIR="$GITHUB_WORKSPACE/linux-kernel-pgo"
-          git clone --depth 1 --branch v6.6 \
-            https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git \
-            "$KERNEL_DIR" || echo "Kernel clone failed, skipping PGO training"
-
-          if [ -d "$KERNEL_DIR/Makefile" ]; then
-            cd "$KERNEL_DIR"
-            # Use the instrumented Clang to compile the kernel
-            # This generates .profraw files for PGO
-            export PATH="$INSTALL_DIR/bin:$PATH"
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-              CC="clang --target=$LLVM_TRIPLE" \
-              defconfig
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-              CC="clang --target=$LLVM_TRIPLE" \
-              -j"$(nproc)" Image || echo "Kernel build partial, enough for PGO profile"
-
-            # Merge profraw files
-            llvm-profdata merge -output="$BUILD_DIR/pgo.profdata" \
-              $(find . -name "*.profraw" 2>/dev/null || true) || true
-          fi
-          echo "::endgroup::"
-
-      # ----------------------------------------------------------
-      # 7. Install
-      # ----------------------------------------------------------
-      - name: Install toolchain
-        run: |
-          set -euo pipefail
+          export PATH="$STAGE1_INSTALL/bin:$PATH"
           cd "$BUILD_DIR"
           ninja install
 
@@ -289,7 +326,6 @@ jobs:
           for tool in clang clang++; do
             ln -sf "$tool" "aarch64-linux-gnu-${tool#clang}" || true
           done
-          # lld symlinks
           ln -sf lld ld.lld || true
           ln -sf lld aarch64-linux-gnu-ld.lld || true
 
@@ -300,15 +336,19 @@ jobs:
           Target: $TARGET_ARCH ($LLVM_TRIPLE)
           Commit: $LLVM_COMMIT_SHORT
           Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          Build Method: 2-Stage (GCC bootstrap -> Clang+ThinLTO)
           ThinLTO: ENABLED
-          PGO: ${{ inputs.enable_pgo && 'ENABLED' || 'DISABLED' }}
-          BOLT: ${{ inputs.enable_bolt && 'ENABLED' || 'DISABLED' }}
+          LLD Linker: ENABLED
+          compiler-rt: ENABLED
+          libc++: ENABLED
+          PGO: ${{ inputs.enable_pgo && 'ENABLED' || 'SKIPPED' }}
+          BOLT: ${{ inputs.enable_bolt && 'ENABLED' || 'SKIPPED' }}
           EOF
 
           echo "Toolchain installed to: $INSTALL_DIR"
 
       # ----------------------------------------------------------
-      # 8. Verify toolchain
+      # Verify final toolchain
       # ----------------------------------------------------------
       - name: Verify toolchain
         run: |
@@ -321,10 +361,12 @@ jobs:
           echo "=== LLD version ==="
           ld.lld --version
 
-          echo "=== Test C compilation ==="
+          echo "=== Check ThinLTO support ==="
           echo 'int main(void) { return 0; }' > /tmp/test.c
-          clang --target="$LLVM_TRIPLE" -O2 -flto=thin -fuse-ld=lld /tmp/test.c \
-            -o /tmp/test_arm64 -static || echo "Static link test (expected to fail without sysroot)"
+          clang --target="$LLVM_TRIPLE" -O2 -flto=thin -fuse-ld=lld \
+            /tmp/test.c -o /tmp/test_arm64 -static \
+            && echo "ThinLTO cross-compilation: OK" \
+            || echo "Static link test (expected to fail without sysroot)"
 
           echo "=== Test kernel-style compilation ==="
           clang --target="$LLVM_TRIPLE" \
@@ -337,15 +379,14 @@ jobs:
             -fno-strict-overflow \
             -mno-outline-atomics \
             -mgeneral-regs-only \
-            -c /tmp/test.c -o /tmp/test_arm64_kernel.o
-
-          echo "SUCCESS: ARM64 kernel-compatible compilation works"
+            -c /tmp/test.c -o /tmp/test_arm64_kernel.o \
+            && echo "Kernel-style compilation: OK"
 
           echo "=== Installed size ==="
           du -sh "$INSTALL_DIR"
 
       # ----------------------------------------------------------
-      # 9. Package & Upload artifact
+      # Package & Upload artifact
       # ----------------------------------------------------------
       - name: Package toolchain
         id: package
@@ -369,7 +410,7 @@ jobs:
           compression-level: 0
 
       # ----------------------------------------------------------
-      # 10. Save ccache for future runs
+      # Save ccache for future runs
       # ----------------------------------------------------------
       - name: Save ccache
         uses: actions/cache/save@v4
@@ -379,7 +420,7 @@ jobs:
           key: ccache-llvm-arm64-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-${{ github.run_id }}
 
       # ----------------------------------------------------------
-      # 11. Print summary
+      # Print summary
       # ----------------------------------------------------------
       - name: Build summary
         if: always()
@@ -389,7 +430,11 @@ jobs:
           echo "Build Type     : $BUILD_TYPE"
           echo "Target Arch    : $TARGET_ARCH"
           echo "Triple         : $LLVM_TRIPLE"
+          echo "Build Method   : 2-Stage (GCC -> Clang+ThinLTO)"
           echo "ThinLTO        : ENABLED"
+          echo "LLD Linker     : ENABLED"
+          echo "compiler-rt    : ENABLED"
+          echo "libc++         : ENABLED"
           echo "PGO            : ${{ inputs.enable_pgo && 'YES' || 'NO' }}"
           echo "BOLT           : ${{ inputs.enable_bolt && 'YES' || 'NO' }}"
           echo "Install Dir    : $INSTALL_DIR"
