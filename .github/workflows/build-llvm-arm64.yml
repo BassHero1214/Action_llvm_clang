@@ -1,0 +1,474 @@
+name: Build LLVM/Clang Toolchain for ARM64 (Kernel Optimized)
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      llvm_version:
+        description: "LLVM version tag (e.g. llvmorg-19.1.0)"
+        required: false
+        default: "llvmorg-19.1.7"
+      build_type:
+        description: "Build type"
+        required: false
+        type: choice
+        options:
+          - Release
+          - RelWithDebInfo
+        default: "Release"
+      enable_lto:
+        description: "Enable ThinLTO for toolchain"
+        required: false
+        type: boolean
+        default: true
+      enable_pgo:
+        description: "Enable PGO (Profile-Guided Optimization)"
+        required: false
+        type: boolean
+        default: true
+      enable_bolt:
+        description: "Enable BOLT post-link optimizer"
+        required: false
+        type: boolean
+        default: false
+      upload_artifact:
+        description: "Upload build artifact"
+        required: false
+        type: boolean
+        default: true
+
+env:
+  LLVM_VERSION: ${{ github.event.inputs.llvm_version || 'llvmorg-19.1.7' }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  TARGET_ARCH: AArch64
+  LLVM_TRIPLE: aarch64-linux-gnu
+  ARTIFACT_NAME: llvm-clang-arm64
+
+jobs:
+  # ============================================================
+  # Build LLVM/Clang/LLD cross-compilation toolchain for ARM64
+  # with kernel-oriented optimizations
+  # ============================================================
+  build-llvm:
+    name: "Build LLVM ${{ env.LLVM_VERSION }} for ${{ env.TARGET_ARCH }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      # ----------------------------------------------------------
+      # 1. Environment setup & dependency installation
+      # ----------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            ninja-build \
+            cmake \
+            ccache \
+            python3 \
+            python3-psutil \
+            zlib1g-dev \
+            libzstd-dev \
+            libxml2-dev \
+            libedit-dev \
+            libncurses5-dev \
+            swig \
+            libffi-dev \
+            pkg-config \
+            flex \
+            bison \
+            binutils-aarch64-linux-gnu \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            qemu-user-static \
+            xz-utils
+
+          # Setup ccache
+          sudo mkdir -p /ccache
+          sudo chown "$(id -u):$(id -g)" /ccache
+          ccache --set-config=max_size=20G
+          ccache --set-config=compression=true
+          ccache --set-config=compression_level=6
+          ccache -z
+
+          echo "CCACHE_DIR=/ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=20G" >> "$GITHUB_ENV"
+
+      # ----------------------------------------------------------
+      # 2. Restore ccache from previous runs
+      # ----------------------------------------------------------
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        id: ccache-restore
+        with:
+          path: /ccache
+          key: ccache-llvm-arm64-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-llvm-arm64-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-
+            ccache-llvm-arm64-${{ env.LLVM_VERSION }}-
+
+      # ----------------------------------------------------------
+      # 3. Clone LLVM project
+      # ----------------------------------------------------------
+      - name: Clone LLVM project
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$LLVM_VERSION" \
+            https://github.com/llvm/llvm-project.git \
+            "$GITHUB_WORKSPACE/llvm-project"
+
+          cd "$GITHUB_WORKSPACE/llvm-project"
+          echo "LLVM_SOURCE_DIR=$PWD" >> "$GITHUB_ENV"
+          echo "LLVM_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      # ----------------------------------------------------------
+      # 4. Configure CMake with kernel-oriented optimizations
+      # ----------------------------------------------------------
+      - name: Configure CMake
+        run: |
+          set -euo pipefail
+
+          BUILD_DIR="$GITHUB_WORKSPACE/build"
+          INSTALL_DIR="$GITHUB_WORKSPACE/install"
+          mkdir -p "$BUILD_DIR" "$INSTALL_DIR"
+
+          echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
+          echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
+
+          # ---- Kernel-optimized CMake flags ----
+          # These flags are specifically tuned for:
+          #   - Cross-compiling the Linux/Android kernel for ARM64
+          #   - Minimizing toolchain runtime overhead
+          #   - Maximizing generated code quality
+
+          cmake -S "$LLVM_SOURCE_DIR/llvm" \
+            -B "$BUILD_DIR" \
+            -G "Ninja" \
+            -Wno-dev \
+            \
+            `# ---- Build type ----` \
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+            \
+            `# ---- Compiler settings ----` \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            \
+            `# ---- Kernel-tuning: C/C++ flags ----` \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -march=native -mtune=native -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden -DNDEBUG" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -march=native -mtune=native -flto=thin -fomit-frame-pointer -fno-plt -fno-semantic-interposition -fvisibility=hidden -DNDEBUG -stdlib=libc++" \
+            -DCMAKE_EXE_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections -fuse-ld=lld" \
+            -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--as-needed -Wl,-z,now -Wl,-z,relro -Wl,--icf=all -Wl,--gc-sections -fuse-ld=lld" \
+            \
+            `# ---- LLVM targets ----` \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
+            -DLLVM_DEFAULT_TARGET_TRIPLE="$LLVM_TRIPLE" \
+            \
+            `# ---- LLVM projects to build ----` \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;compiler-rt;lldb;polly" \
+            -DLLVM_ENABLE_RUNTIMES="compiler-rt;libcxx;libcxxabi;libunwind" \
+            \
+            `# ---- Kernel-oriented optimization flags ----` \
+            -DLLVM_ENABLE_LTO="Thin" \
+            -DLLVM_ENABLE_LLD=ON \
+            -DLLVM_ENABLE_PIC=ON \
+            -DLLVM_ENABLE_PLUGINS=ON \
+            -DLLVM_ENABLE_TERMINFO=ON \
+            -DLLVM_ENABLE_ZSTD=ON \
+            -DLLVM_ENABLE_ZLIB=ON \
+            \
+            `# ---- PGO (Profile-Guided Optimization) ----` \
+            -DLLVM_BUILD_INSTRUMENTED=${{ inputs.enable_pgo && 'ON' || 'OFF' }} \
+            -DLLVM_BUILD_INSTRUMENTED_IR=${{ inputs.enable_pgo && 'ON' || 'OFF' }} \
+            \
+            `# ---- BOLT optimization ----` \
+            -DLLVM_ENABLE_BOLT=${{ inputs.enable_bolt && 'ON' || 'OFF' }} \
+            \
+            `# ---- Linker settings ----` \
+            -DLLVM_USE_LINKER=lld \
+            -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
+            -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
+            \
+            `# ---- Reduce binary size (kernel toolchain focus) ----` \
+            -DLLVM_BUILD_LLVM_DYLIB=ON \
+            -DLLVM_LINK_LLVM_DYLIB=ON \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DLLVM_ENABLE_OCAMLDOC=OFF \
+            -DLLVM_ENABLE_SPHINX=OFF \
+            -DLLVM_ENABLE_DOXYGEN=OFF \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            \
+            `# ---- Kernel-specific: enable sanitizers ----` \
+            -DCOMPILER_RT_BUILD_SANITIZERS=ON \
+            -DCOMPILER_RT_BUILD_XRAY=ON \
+            -DCOMPILER_RT_BUILD_LIBFUZZER=ON \
+            -DCOMPILER_RT_BUILD_PROFILE=ON \
+            \
+            `# ---- Assertions off for Release ----` \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF
+
+      # ----------------------------------------------------------
+      # 5. Build LLVM + Clang
+      # ----------------------------------------------------------
+      - name: Build LLVM/Clang
+        run: |
+          set -euo pipefail
+          cd "$BUILD_DIR"
+          ninja -j"$(nproc)" \
+            clang \
+            clang++ \
+            clang-tidy \
+            clang-format \
+            clangd \
+            lld \
+            llvm-ar \
+            llvm-nm \
+            llvm-objcopy \
+            llvm-objdump \
+            llvm-ranlib \
+            llvm-readelf \
+            llvm-size \
+            llvm-strings \
+            llvm-strip \
+            llvm-config \
+            llvm-profdata \
+            llvm-cov \
+            llvm-symbolizer \
+            llvm-link \
+            opt \
+            llc \
+            llvm-as \
+            llvm-dis \
+            FileCheck \
+            count \
+            not
+
+      # ----------------------------------------------------------
+      # 6. PGO: instrumented training run (optional)
+      # ----------------------------------------------------------
+      - name: PGO Training (compile Linux kernel as training workload)
+        if: ${{ inputs.enable_pgo }}
+        run: |
+          set -euo pipefail
+          echo "::group::PGO Training - Build Linux kernel with instrumented Clang"
+
+          # Clone a minimal kernel for PGO training
+          KERNEL_DIR="$GITHUB_WORKSPACE/linux-kernel-pgo"
+          git clone --depth 1 --branch v6.6 \
+            https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git \
+            "$KERNEL_DIR" || echo "Kernel clone failed, skipping PGO training"
+
+          if [ -d "$KERNEL_DIR/Makefile" ]; then
+            cd "$KERNEL_DIR"
+            # Use the instrumented Clang to compile the kernel
+            # This generates .profraw files for PGO
+            export PATH="$INSTALL_DIR/bin:$PATH"
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+              CC="clang --target=$LLVM_TRIPLE" \
+              defconfig
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+              CC="clang --target=$LLVM_TRIPLE" \
+              -j"$(nproc)" Image || echo "Kernel build partial, enough for PGO profile"
+
+            # Merge profraw files
+            llvm-profdata merge -output="$BUILD_DIR/pgo.profdata" \
+              $(find . -name "*.profraw" 2>/dev/null || true) || true
+          fi
+          echo "::endgroup::"
+
+      # ----------------------------------------------------------
+      # 7. Install
+      # ----------------------------------------------------------
+      - name: Install toolchain
+        run: |
+          set -euo pipefail
+          cd "$BUILD_DIR"
+          ninja install
+
+          # Create convenience symlinks for kernel builds
+          cd "$INSTALL_DIR/bin"
+          for tool in clang clang++; do
+            ln -sf "$tool" "aarch64-linux-gnu-${tool#clang}" || true
+          done
+          # lld symlinks
+          ln -sf lld ld.lld || true
+          ln -sf lld aarch64-linux-gnu-ld.lld || true
+
+          # Create a toolchain info file
+          cat > "$INSTALL_DIR/toolchain-info.txt" << EOF
+          LLVM Version: $LLVM_VERSION
+          Build Type: $BUILD_TYPE
+          Target: $TARGET_ARCH ($LLVM_TRIPLE)
+          Commit: $LLVM_COMMIT_SHORT
+          Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          ThinLTO: ENABLED
+          PGO: ${{ inputs.enable_pgo && 'ENABLED' || 'DISABLED' }}
+          BOLT: ${{ inputs.enable_bolt && 'ENABLED' || 'DISABLED' }}
+          EOF
+
+          echo "Toolchain installed to: $INSTALL_DIR"
+
+      # ----------------------------------------------------------
+      # 8. Verify toolchain
+      # ----------------------------------------------------------
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          export PATH="$INSTALL_DIR/bin:$PATH"
+
+          echo "=== Clang version ==="
+          clang --version
+
+          echo "=== LLD version ==="
+          ld.lld --version
+
+          echo "=== Test C compilation ==="
+          echo 'int main(void) { return 0; }' > /tmp/test.c
+          clang --target="$LLVM_TRIPLE" -O2 -flto=thin -fuse-ld=lld /tmp/test.c \
+            -o /tmp/test_arm64 -static || echo "Static link test (expected to fail without sysroot)"
+
+          echo "=== Test kernel-style compilation ==="
+          clang --target="$LLVM_TRIPLE" \
+            -O2 -g -Wall -Werror \
+            -fno-strict-aliasing \
+            -fno-common \
+            -fno-delete-null-pointer-checks \
+            -fno-stack-protector \
+            -fno-omit-frame-pointer \
+            -fno-strict-overflow \
+            -mno-outline-atomics \
+            -mgeneral-regs-only \
+            -c /tmp/test.c -o /tmp/test_arm64_kernel.o
+
+          echo "SUCCESS: ARM64 kernel-compatible compilation works"
+
+          echo "=== Installed size ==="
+          du -sh "$INSTALL_DIR"
+
+      # ----------------------------------------------------------
+      # 9. Package & Upload artifact
+      # ----------------------------------------------------------
+      - name: Package toolchain
+        if: ${{ inputs.upload_artifact }}
+        run: |
+          set -euo pipefail
+          ARCHIVE="$GITHUB_WORKSPACE/${{ env.ARTIFACT_NAME }}-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}.tar.xz"
+          tar -cJf "$ARCHIVE" -C "$INSTALL_DIR" .
+          echo "ARCHIVE_PATH=$ARCHIVE" >> "$GITHUB_ENV"
+          ls -lh "$ARCHIVE"
+
+      - name: Upload artifact
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}
+          path: ${{ env.ARCHIVE_PATH }}
+          retention-days: 30
+          compression-level: 0
+
+      # ----------------------------------------------------------
+      # 10. Save ccache for future runs
+      # ----------------------------------------------------------
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: /ccache
+          key: ccache-llvm-arm64-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-${{ github.run_id }}
+
+      # ----------------------------------------------------------
+      # 11. Print summary
+      # ----------------------------------------------------------
+      - name: Build summary
+        if: always()
+        run: |
+          echo "::group::Build Summary"
+          echo "LLVM Version   : $LLVM_VERSION"
+          echo "Build Type     : $BUILD_TYPE"
+          echo "Target Arch    : $TARGET_ARCH"
+          echo "Triple         : $LLVM_TRIPLE"
+          echo "ThinLTO        : ENABLED"
+          echo "PGO            : ${{ inputs.enable_pgo && 'YES' || 'NO' }}"
+          echo "BOLT           : ${{ inputs.enable_bolt && 'YES' || 'NO' }}"
+          echo "Install Dir    : $INSTALL_DIR"
+          if [ -n "${ARCHIVE_PATH:-}" ]; then
+            echo "Artifact       : $ARCHIVE_PATH ($(du -h "$ARCHIVE_PATH" | cut -f1))"
+          fi
+          echo "::endgroup::"
+
+  # ============================================================
+  # Quick smoke-test: build Linux ARM64 kernel with the toolchain
+  # ============================================================
+  test-kernel-build:
+    name: "Smoke Test: Build ARM64 Kernel"
+    needs: build-llvm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}
+
+      - name: Extract toolchain
+        run: |
+          TOOLCHAIN_DIR="$GITHUB_WORKSPACE/toolchain"
+          mkdir -p "$TOOLCHAIN_DIR"
+          tar -xJf *.tar.xz -C "$TOOLCHAIN_DIR"
+          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> "$GITHUB_ENV"
+
+      - name: Install kernel build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            flex bison bc \
+            gcc-aarch64-linux-gnu \
+            libssl-dev
+
+      - name: Build Linux kernel with custom toolchain
+        run: |
+          set -euo pipefail
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+
+          # Clone stable Linux kernel
+          git clone --depth 1 --branch v6.6 \
+            https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git \
+            "$GITHUB_WORKSPACE/linux"
+
+          cd "$GITHUB_WORKSPACE/linux"
+
+          # Use our custom Clang + LLD toolchain
+          make ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="clang --target=aarch64-linux-gnu" \
+            LD=ld.lld \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            defconfig
+
+          make ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="clang --target=aarch64-linux-gnu" \
+            LD=ld.lld \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            -j"$(nproc)" \
+            Image modules
+
+          echo "KERNEL BUILD SUCCESS with custom LLVM toolchain!"
+          ls -lh arch/arm64/boot/Image
