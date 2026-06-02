@@ -231,7 +231,15 @@ jobs:
       # STAGE 2: Clang + LTO Optimized Build
       # Use stage1 clang+lld to rebuild with ThinLTO + full optimizations
       # ==========================================================
+      - name: Restore Stage 2 cache
+        id: stage2-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/install
+          key: stage2-llvm-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-v1
+
       - name: "Stage 2: Configure (Clang + ThinLTO + full optimization)"
+        if: steps.stage2-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
 
@@ -312,6 +320,8 @@ jobs:
       # Stage 2: Build all tools with ThinLTO
       # ----------------------------------------------------------
       - name: "Stage 2: Build LLVM/Clang (ThinLTO optimized)"
+        id: stage2-build
+        if: steps.stage2-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           export PATH="$STAGE1_INSTALL/bin:$PATH"
@@ -338,6 +348,7 @@ jobs:
       # Stage 2: Install final toolchain
       # ----------------------------------------------------------
       - name: "Stage 2: Install toolchain"
+        if: steps.stage2-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           export PATH="$STAGE1_INSTALL/bin:$PATH"
@@ -363,12 +374,28 @@ jobs:
           ThinLTO: ENABLED
           LLD Linker: ENABLED
           compiler-rt: ENABLED
-          libc++: ENABLED
           PGO: ${{ inputs.enable_pgo && 'ENABLED' || 'SKIPPED' }}
           BOLT: ${{ inputs.enable_bolt && 'ENABLED' || 'SKIPPED' }}
           EOF
 
           echo "Toolchain installed to: $INSTALL_DIR"
+
+      - name: "Stage 2: Use cached build"
+        if: steps.stage2-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "::notice:: Stage 2 cache HIT - skipping optimized build"
+          echo "BUILD_DIR=$GITHUB_WORKSPACE/build" >> "$GITHUB_ENV"
+          echo "INSTALL_DIR=$GITHUB_WORKSPACE/install" >> "$GITHUB_ENV"
+
+      # ----------------------------------------------------------
+      # Save Stage 2 cache for future runs
+      # ----------------------------------------------------------
+      - name: Save Stage 2 cache
+        uses: actions/cache/save@v4
+        if: always() && steps.stage2-cache.outputs.cache-hit != 'true' && (steps.stage2-build.conclusion == 'success' || steps.stage2-build.conclusion == 'skipped')
+        with:
+          path: ${{ github.workspace }}/install
+          key: stage2-llvm-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-v1
 
       # ----------------------------------------------------------
       # Verify final toolchain
