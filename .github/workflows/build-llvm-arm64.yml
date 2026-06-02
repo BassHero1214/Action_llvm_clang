@@ -30,11 +30,12 @@ jobs:
       - name: Setup ARM64 cross-build environment
         run: |
           set -euo pipefail
-          sudo dpkg --add-architecture arm64
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build cmake ccache python3 flex bison pkg-config xz-utils
-          sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
-          sudo apt-get install -y -qq libc6-dev-arm64-cross libstdc++-14-dev-arm64-cross libgcc-14-dev-arm64-cross linux-libc-dev-arm64-cross
+          sudo apt-get install -y -qq \
+            ninja-build cmake ccache python3 flex bison pkg-config xz-utils \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            libc6-dev-arm64-cross libstdc++-14-dev-arm64-cross libgcc-14-dev-arm64-cross \
+            linux-libc-dev-arm64-cross
           sudo mkdir -p /ccache
           sudo chown "$(id -u):$(id -g)" /ccache
           ccache --set-config=max_size=20G
