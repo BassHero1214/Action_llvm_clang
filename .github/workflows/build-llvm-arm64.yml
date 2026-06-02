@@ -236,7 +236,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/install
-          key: stage2-llvm-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-v1
+          key: stage2-llvm-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-v2
 
       - name: "Stage 2: Configure (Clang + ThinLTO + full optimization)"
         if: steps.stage2-cache.outputs.cache-hit != 'true'
@@ -277,9 +277,7 @@ jobs:
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DLLVM_ENABLE_RUNTIMES="compiler-rt" \
             \
-            `# ---- ThinLTO for the toolchain itself ----` \
-            -DLLVM_ENABLE_LTO="Thin" \
-            -DLLVM_OPTIMIZED_TABLEGEN=ON \
+            `# ---- ThinLTO disabled (too slow on CI runners; Release -O3 is sufficient) ----` \
             \
             `# ---- Kernel-oriented optimization flags ----` \
             -DLLVM_ENABLE_PIC=ON \
@@ -295,7 +293,7 @@ jobs:
             `# ---- Use stage1 lld as linker ----` \
             -DLLVM_USE_LINKER="$STAGE1_INSTALL/bin/ld.lld" \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
-            -DLLVM_PARALLEL_LINK_JOBS="2" \
+            -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
             \
             `# ---- Slim build ----` \
             -DLLVM_BUILD_LLVM_DYLIB=ON \
@@ -395,7 +393,7 @@ jobs:
         if: always() && steps.stage2-cache.outputs.cache-hit != 'true' && (steps.stage2-build.conclusion == 'success' || steps.stage2-build.conclusion == 'skipped')
         with:
           path: ${{ github.workspace }}/install
-          key: stage2-llvm-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-v1
+          key: stage2-llvm-${{ env.LLVM_VERSION }}-${{ env.BUILD_TYPE }}-v2
 
       # ----------------------------------------------------------
       # Verify final toolchain
