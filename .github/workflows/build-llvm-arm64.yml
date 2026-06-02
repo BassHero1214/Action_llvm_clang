@@ -1,11 +1,6 @@
 name: Build LLVM/Clang Toolchain for ARM64 (Kernel Optimized)
 
 on:
-  push:
-    branches: [main, master]
-    tags: ["v*"]
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
     inputs:
       llvm_version:
