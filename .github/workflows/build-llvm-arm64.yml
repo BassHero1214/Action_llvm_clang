@@ -116,10 +116,8 @@ jobs:
             PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
             mkdir -p "$PGO_DIR"
             PGO_CFLAGS="-fprofile-generate=$PGO_DIR"
-            PGO_LDFLAGS="-fprofile-generate=$PGO_DIR"
           else
             PGO_CFLAGS=""
-            PGO_LDFLAGS=""
           fi
 
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$STAGE1_DIR" -G "Ninja" -Wno-dev \
@@ -130,8 +128,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS_RELEASE="$BASE_CFLAGS $PGO_CFLAGS" \
             -DCMAKE_CXX_FLAGS_RELEASE="$BASE_CFLAGS $PGO_CFLAGS" \
-            -DCMAKE_EXE_LINKER_FLAGS="$BASE_LDFLAGS $PGO_LDFLAGS" \
-            -DCMAKE_SHARED_LINKER_FLAGS="$BASE_LDFLAGS $PGO_LDFLAGS" \
+            -DCMAKE_EXE_LINKER_FLAGS="$BASE_LDFLAGS" \
+            -DCMAKE_SHARED_LINKER_FLAGS="$BASE_LDFLAGS" \
             -DCMAKE_INSTALL_PREFIX="$STAGE1_INSTALL" \
             -DLLVM_HOST_TRIPLE=aarch64-linux-gnu \
             -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
@@ -193,8 +191,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-use=$PGO_DIR -fprofile-correction" \
             -DCMAKE_CXX_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-use=$PGO_DIR -fprofile-correction" \
-            -DCMAKE_EXE_LINKER_FLAGS="$OPT_LDFLAGS -fprofile-use=$PGO_DIR" \
-            -DCMAKE_SHARED_LINKER_FLAGS="$OPT_LDFLAGS -fprofile-use=$PGO_DIR" \
+            -DCMAKE_EXE_LINKER_FLAGS="$OPT_LDFLAGS" \
+            -DCMAKE_SHARED_LINKER_FLAGS="$OPT_LDFLAGS" \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DLLVM_HOST_TRIPLE=aarch64-linux-gnu \
             -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
