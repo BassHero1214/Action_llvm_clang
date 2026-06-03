@@ -25,10 +25,15 @@ on:
           - ubuntu-24.04-16core
         default: "ubuntu-24.04"
       enable_lto:
-        description: "Enable ThinLTO (default ON, uses system clang-18)"
+        description: "Enable ThinLTO"
         required: false
         type: boolean
         default: true
+      custom_clang_url:
+        description: "URL to pre-built Clang archive (.tar.xz or .tar.gz). Leave empty to use system clang-18"
+        required: false
+        type: string
+        default: ""
       enable_pgo:
         description: "Enable PGO (reserved for future)"
         required: false
@@ -74,14 +79,25 @@ jobs:
           ccache --set-config=max_size=20G -z
           echo "CCACHE_DIR=/ccache" >> "$GITHUB_ENV"
 
-      # Install Clang 18 + LLD for ThinLTO cross-compilation
-      - name: Install Clang 18 + LLD
+      # Install or download Clang for ThinLTO cross-compilation
+      - name: Setup Clang toolchain
         if: ${{ inputs.enable_lto }}
         run: |
-          sudo apt-get install -y -qq clang-18 lld-18 libc++-18-dev libc++abi-18-dev
-          echo "CLANG_CC=clang-18" >> "$GITHUB_ENV"
-          echo "CLANG_CXX=clang++-18" >> "$GITHUB_ENV"
-          echo "CLANG_LD=ld.lld-18" >> "$GITHUB_ENV"
+          if [ -n "${{ inputs.custom_clang_url }}" ]; then
+            echo "Downloading custom Clang from: ${{ inputs.custom_clang_url }}"
+            mkdir -p "$GITHUB_WORKSPACE/custom-clang"
+            curl -fsSL "${{ inputs.custom_clang_url }}" -o /tmp/clang.tar.xz
+            tar -xf /tmp/clang.tar.xz -C "$GITHUB_WORKSPACE/custom-clang" --strip-components=1
+            echo "CLANG_DIR=$GITHUB_WORKSPACE/custom-clang" >> "$GITHUB_ENV"
+            echo "CLANG_CC=$GITHUB_WORKSPACE/custom-clang/bin/clang" >> "$GITHUB_ENV"
+            echo "CLANG_CXX=$GITHUB_WORKSPACE/custom-clang/bin/clang++" >> "$GITHUB_ENV"
+            echo "CLANG_LD=$GITHUB_WORKSPACE/custom-clang/bin/ld.lld" >> "$GITHUB_ENV"
+          else
+            sudo apt-get install -y -qq clang-18 lld-18 libc++-18-dev libc++abi-18-dev
+            echo "CLANG_CC=clang-18" >> "$GITHUB_ENV"
+            echo "CLANG_CXX=clang++-18" >> "$GITHUB_ENV"
+            echo "CLANG_LD=ld.lld-18" >> "$GITHUB_ENV"
+          fi
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
@@ -110,10 +126,10 @@ jobs:
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
           if [ "${{ inputs.enable_lto }}" = "true" ]; then
-            CC=clang-18
-            CXX=clang++-18
+            CC="$CLANG_CC"
+            CXX="$CLANG_CXX"
             LTO="-DLLVM_ENABLE_LTO=Thin"
-            LD="-DLLVM_USE_LINKER=ld.lld-18"
+            LD="-DLLVM_USE_LINKER=$CLANG_LD"
             CFLAGS="-O3 -march=armv8-a+crc+crypto -flto=thin -fomit-frame-pointer -ffunction-sections -fdata-sections"
             LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -fuse-ld=lld"
           else
@@ -160,6 +176,7 @@ jobs:
       - name: Build LLVM/Clang (native ARM64)
         run: |
           set -euo pipefail
+          [ -n "${CLANG_DIR:-}" ] && export PATH="$CLANG_DIR/bin:$PATH"
           cd "$BUILD_DIR"
           ninja -j"$(nproc)" \
             clang lld \
