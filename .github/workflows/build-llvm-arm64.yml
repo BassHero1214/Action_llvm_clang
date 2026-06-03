@@ -25,15 +25,10 @@ on:
           - ubuntu-24.04-16core
         default: "ubuntu-24.04"
       enable_lto:
-        description: "Enable ThinLTO (needs bootstrap Clang, adds ~20min Stage1)"
+        description: "Enable ThinLTO (default ON, uses system clang-18)"
         required: false
         type: boolean
         default: true
-      bootstrap_clang:
-        description: "Pre-built Clang path or 'auto' (auto=build Stage1 with GCC)"
-        required: false
-        type: string
-        default: "auto"
       enable_pgo:
         description: "Enable PGO (reserved for future)"
         required: false
@@ -76,10 +71,17 @@ jobs:
             linux-libc-dev-arm64-cross
           sudo mkdir -p /ccache
           sudo chown "$(id -u):$(id -g)" /ccache
-          ccache --set-config=max_size=20G
-          ccache -z
+          ccache --set-config=max_size=20G -z
           echo "CCACHE_DIR=/ccache" >> "$GITHUB_ENV"
-          echo "AARCH64_SYSROOT=/usr/aarch64-linux-gnu" >> "$GITHUB_ENV"
+
+      # Install Clang 18 + LLD for ThinLTO cross-compilation
+      - name: Install Clang 18 + LLD
+        if: ${{ inputs.enable_lto }}
+        run: |
+          sudo apt-get install -y -qq clang-18 lld-18 libc++-18-dev libc++abi-18-dev
+          echo "CLANG_CC=clang-18" >> "$GITHUB_ENV"
+          echo "CLANG_CXX=clang++-18" >> "$GITHUB_ENV"
+          echo "CLANG_LD=ld.lld-18" >> "$GITHUB_ENV"
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
@@ -96,45 +98,9 @@ jobs:
           echo "LLVM_SOURCE_DIR=$PWD" >> "$GITHUB_ENV"
 
       # ==========================================================
-      # STAGE 1: Build x86_64 clang+lld with GCC (for ThinLTO bootstrap)
+      # Configure: Clang+ThinLTO or GCC fallback
       # ==========================================================
-      - name: "Stage 1: Configure (GCC → x86_64 clang+lld)"
-        if: ${{ inputs.enable_lto }}
-        run: |
-          set -euo pipefail
-          STAGE1_DIR="$GITHUB_WORKSPACE/stage1"
-          STAGE1_INSTALL="$GITHUB_WORKSPACE/stage1-install"
-          mkdir -p "$STAGE1_DIR" "$STAGE1_INSTALL"
-          echo "STAGE1_INSTALL=$STAGE1_INSTALL" >> "$GITHUB_ENV"
-
-          cmake -S "$LLVM_SOURCE_DIR/llvm" \
-            -B "$STAGE1_DIR" -G "Ninja" -Wno-dev \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$STAGE1_INSTALL" \
-            -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
-            -DLLVM_TARGETS_TO_BUILD="X86;AArch64;ARM" \
-            -DLLVM_ENABLE_PROJECTS="clang;lld" \
-            -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
-            -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
-            -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_ENABLE_ASSERTIONS=OFF
-
-      - name: "Stage 1: Build x86_64 clang+lld"
-        if: ${{ inputs.enable_lto }}
-        run: |
-          cd "$GITHUB_WORKSPACE/stage1"
-          ninja -j"$(nproc)" clang lld
-
-      - name: "Stage 1: Install"
-        if: ${{ inputs.enable_lto }}
-        run: |
-          cd "$GITHUB_WORKSPACE/stage1"
-          ninja install
-          echo "Bootstrap Clang ready at $STAGE1_INSTALL"
-
-      # ==========================================================
-      # STAGE 2: Native ARM64 build with ThinLTO (using Clang)
-      # ==========================================================
-      - name: "Stage 2: Configure (Clang → native ARM64 + ThinLTO)"
+      - name: Configure (native ARM64)
         run: |
           set -euo pipefail
           BUILD_DIR="$GITHUB_WORKSPACE/build"
@@ -144,36 +110,29 @@ jobs:
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
           if [ "${{ inputs.enable_lto }}" = "true" ]; then
-            CC="$STAGE1_INSTALL/bin/clang"
-            CXX="$STAGE1_INSTALL/bin/clang++"
-            LTO_FLAG="-DLLVM_ENABLE_LTO=Thin"
-            LINKER_FLAG="-DLLVM_USE_LINKER=$STAGE1_INSTALL/bin/ld.lld"
+            CC=clang-18
+            CXX=clang++-18
+            LTO="-DLLVM_ENABLE_LTO=Thin"
+            LD="-DLLVM_USE_LINKER=ld.lld-18"
             CFLAGS="-O3 -march=armv8-a+crc+crypto -flto=thin -fomit-frame-pointer -ffunction-sections -fdata-sections"
-            CXXFLAGS="-O3 -march=armv8-a+crc+crypto -flto=thin -fomit-frame-pointer -ffunction-sections -fdata-sections"
             LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -fuse-ld=lld"
           else
             sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             CC=aarch64-linux-gnu-gcc
             CXX=aarch64-linux-gnu-g++
-            LTO_FLAG=""
-            LINKER_FLAG=""
+            LTO=""; LD=""
             CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-            CXXFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
             LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
           fi
 
-          cmake -S "$LLVM_SOURCE_DIR/llvm" \
-            -B "$BUILD_DIR" -G "Ninja" -Wno-dev \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+          cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$BUILD_DIR" -G "Ninja" -Wno-dev \
+            -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_CROSSCOMPILING=ON \
-            -DCMAKE_C_COMPILER="$CC" \
-            -DCMAKE_CXX_COMPILER="$CXX" \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_C_FLAGS_RELEASE="$CFLAGS" \
-            -DCMAKE_CXX_FLAGS_RELEASE="$CXXFLAGS" \
+            -DCMAKE_CXX_FLAGS_RELEASE="$CFLAGS" \
             -DCMAKE_EXE_LINKER_FLAGS_RELEASE="$LDFLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="$LDFLAGS" \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
@@ -182,28 +141,25 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DLLVM_ENABLE_RUNTIMES="compiler-rt" \
-            $LTO_FLAG $LINKER_FLAG \
-            -DLLVM_ENABLE_BOLT=${{ inputs.enable_bolt && 'ON' || 'OFF' }} \
+            $LTO $LD \
             -DLLVM_OPTIMIZED_TABLEGEN=ON \
-            -DLLVM_ENABLE_PIC=ON -DLLVM_ENABLE_ZSTD=ON \
-            -DLLVM_ENABLE_ZLIB=ON -DLLVM_ENABLE_TERMINFO=ON \
+            -DLLVM_ENABLE_PIC=ON -DLLVM_ENABLE_ZSTD=ON -DLLVM_ENABLE_ZLIB=ON \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
             -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
             -DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON \
             -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF \
-            -DCOMPILER_RT_BUILD_SANITIZERS=ON \
-            -DCOMPILER_RT_BUILD_XRAY=ON -DCOMPILER_RT_BUILD_PROFILE=ON \
+            -DCOMPILER_RT_BUILD_SANITIZERS=ON -DCOMPILER_RT_BUILD_XRAY=ON \
+            -DCOMPILER_RT_BUILD_PROFILE=ON \
             -DCOMPILER_RT_BUILD_LIBFUZZER=OFF -DCOMPILER_RT_BUILD_ORC=OFF \
             -DCOMPILER_RT_BUILD_SCUDO_STANDALONE=OFF \
             -DCOMPILER_RT_BUILD_GWP_ASAN=OFF -DCOMPILER_RT_BUILD_MEMPROF=OFF \
             -DLLVM_ENABLE_ASSERTIONS=OFF
 
-      - name: "Stage 2: Build (native ARM64)"
+      - name: Build LLVM/Clang (native ARM64)
         run: |
           set -euo pipefail
-          [ "${{ inputs.enable_lto }}" = "true" ] && export PATH="$STAGE1_INSTALL/bin:$PATH"
           cd "$BUILD_DIR"
           ninja -j"$(nproc)" \
             clang lld \
