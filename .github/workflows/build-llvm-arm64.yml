@@ -75,34 +75,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             ninja-build cmake ccache python3 flex bison pkg-config xz-utils \
-            binutils-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             libc6-dev-arm64-cross libc6-arm64-cross libstdc++-14-dev-arm64-cross libgcc-14-dev-arm64-cross \
             linux-libc-dev-arm64-cross
           sudo mkdir -p /ccache
           sudo chown "$(id -u):$(id -g)" /ccache
           ccache --set-config=max_size=20G -z
           echo "CCACHE_DIR=/ccache" >> "$GITHUB_ENV"
-
-      # Install or download Clang for ThinLTO cross-compilation
-      - name: Setup Clang toolchain
-        if: ${{ inputs.enable_lto }}
-        run: |
-          if [ -n "${{ inputs.custom_clang_url }}" ]; then
-            echo "Downloading custom Clang from: ${{ inputs.custom_clang_url }}"
-            mkdir -p "$GITHUB_WORKSPACE/custom-clang"
-            curl -fsSL "${{ inputs.custom_clang_url }}" -o "$GITHUB_WORKSPACE/clang.tar.xz"
-            tar -xf "$GITHUB_WORKSPACE/clang.tar.xz" -C "$GITHUB_WORKSPACE/custom-clang" --strip-components=1
-            rm -f "$GITHUB_WORKSPACE/clang.tar.xz"
-            echo "CLANG_DIR=$GITHUB_WORKSPACE/custom-clang" >> "$GITHUB_ENV"
-            echo "CLANG_CC=$GITHUB_WORKSPACE/custom-clang/bin/clang" >> "$GITHUB_ENV"
-            echo "CLANG_CXX=$GITHUB_WORKSPACE/custom-clang/bin/clang++" >> "$GITHUB_ENV"
-            echo "CLANG_LD=$GITHUB_WORKSPACE/custom-clang/bin/ld.lld" >> "$GITHUB_ENV"
-          else
-            sudo apt-get install -y -qq clang-18 lld-18 libc++-18-dev libc++abi-18-dev
-            echo "CLANG_CC=clang-18" >> "$GITHUB_ENV"
-            echo "CLANG_CXX=clang++-18" >> "$GITHUB_ENV"
-            echo "CLANG_LD=ld.lld-18" >> "$GITHUB_ENV"
-          fi
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
@@ -131,26 +110,18 @@ jobs:
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
           if [ "${{ inputs.enable_lto }}" = "true" ]; then
-            CC="$CLANG_CC"
-            CXX="$CLANG_CXX"
-            LTO="-DLLVM_ENABLE_LTO=Thin"
-            LD="-DLLVM_USE_LINKER=$CLANG_LD"
-            CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections --gcc-toolchain=/usr"
-            LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -fuse-ld=lld --gcc-toolchain=/usr -L/usr/lib/gcc-cross/aarch64-linux-gnu/14"
+            CFLAGS="-O3 -march=armv8-a+crc+crypto -flto -fomit-frame-pointer -ffunction-sections -fdata-sections"
+            LTO_FLAG="-DLLVM_ENABLE_LTO=Full"
           else
-            sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-            CC=aarch64-linux-gnu-gcc
-            CXX=aarch64-linux-gnu-g++
-            LTO=""; LD=""
             CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-            LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
+            LTO_FLAG=""
           fi
+          LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
 
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$BUILD_DIR" -G "Ninja" -Wno-dev \
             -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_SYSROOT=/usr/aarch64-linux-gnu \
             -DCMAKE_CROSSCOMPILING=ON \
-            -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_C_FLAGS_RELEASE="$CFLAGS" \
@@ -163,7 +134,7 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DLLVM_ENABLE_RUNTIMES="compiler-rt" \
-            $LTO $LD \
+            $LTO_FLAG \
             -DLLVM_OPTIMIZED_TABLEGEN=ON \
             -DLLVM_ENABLE_PIC=ON -DLLVM_ENABLE_ZSTD=ON -DLLVM_ENABLE_ZLIB=ON \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
@@ -182,10 +153,7 @@ jobs:
       - name: Build LLVM/Clang (native ARM64)
         run: |
           set -euo pipefail
-          [ -n "${CLANG_DIR:-}" ] && export PATH="$CLANG_DIR/bin:$PATH"
-          # Free disk space before heavy build
-          rm -rf "$LLVM_SOURCE_DIR/test" "$LLVM_SOURCE_DIR/unittests" \
-                 "$LLVM_SOURCE_DIR/llvm/test" "$LLVM_SOURCE_DIR/clang/test" 2>/dev/null || true
+          rm -rf "$LLVM_SOURCE_DIR/test" "$LLVM_SOURCE_DIR/llvm/test" 2>/dev/null || true
           df -h /
           cd "$BUILD_DIR"
           ninja -j"$(nproc)" \
