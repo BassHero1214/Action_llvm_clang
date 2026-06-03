@@ -129,8 +129,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Binary format verification ==="
-          file "$INSTALL_DIR/bin/clang" "$INSTALL_DIR/bin/lld" "$INSTALL_DIR/bin/llvm-ar"
-          if file "$INSTALL_DIR/bin/clang" | grep -q "ARM aarch64"; then
+          file -L "$INSTALL_DIR/bin/clang" "$INSTALL_DIR/bin/lld" "$INSTALL_DIR/bin/llvm-ar"
+          if file -L "$INSTALL_DIR/bin/clang" | grep -q "ARM aarch64"; then
             echo "PASS: clang is native ARM64 ELF binary"
           else
             echo "FAIL: clang is NOT ARM64!"
