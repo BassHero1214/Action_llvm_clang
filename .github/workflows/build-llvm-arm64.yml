@@ -109,11 +109,7 @@ jobs:
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
-          if [ "${{ inputs.enable_lto }}" = "true" ]; then
-            CFLAGS="-O3 -march=armv8-a+crc+crypto -flto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-          else
-            CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-          fi
+          CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
           LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
 
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$BUILD_DIR" -G "Ninja" -Wno-dev \
