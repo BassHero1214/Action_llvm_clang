@@ -148,6 +148,7 @@ jobs:
 
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$BUILD_DIR" -G "Ninja" -Wno-dev \
             -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_SYSROOT=/usr/aarch64-linux-gnu \
             -DCMAKE_CROSSCOMPILING=ON \
             -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
