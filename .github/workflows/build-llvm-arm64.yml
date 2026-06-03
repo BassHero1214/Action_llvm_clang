@@ -7,6 +7,23 @@ on:
         description: "LLVM version tag"
         required: false
         default: "llvmorg-19.1.7"
+      build_type:
+        description: "Build type"
+        required: false
+        type: choice
+        options:
+          - Release
+          - RelWithDebInfo
+        default: "Release"
+      runner:
+        description: "Runner size (larger = faster, requires paid plan)"
+        required: false
+        type: choice
+        options:
+          - ubuntu-24.04
+          - ubuntu-24.04-8core
+          - ubuntu-24.04-16core
+        default: "ubuntu-24.04"
       upload_artifact:
         description: "Upload build artifact"
         required: false
@@ -15,12 +32,13 @@ on:
 
 env:
   LLVM_VERSION: ${{ github.event.inputs.llvm_version || 'llvmorg-19.1.7' }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
   ARTIFACT_NAME: llvm-clang-arm64-native
 
 jobs:
   build-llvm:
     name: "Build LLVM ${{ inputs.llvm_version || 'llvmorg-19.1.7' }} (Native ARM64)"
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 360
 
     steps:
@@ -79,7 +97,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DLLVM_HOST_TRIPLE=aarch64-linux-gnu \
             -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
