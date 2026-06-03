@@ -111,10 +111,8 @@ jobs:
 
           if [ "${{ inputs.enable_lto }}" = "true" ]; then
             CFLAGS="-O3 -march=armv8-a+crc+crypto -flto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-            LTO_FLAG="-DLLVM_ENABLE_LTO=Full"
           else
             CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-            LTO_FLAG=""
           fi
           LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
 
@@ -134,7 +132,6 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DLLVM_ENABLE_RUNTIMES="compiler-rt" \
-            $LTO_FLAG \
             -DLLVM_OPTIMIZED_TABLEGEN=ON \
             -DLLVM_ENABLE_PIC=ON -DLLVM_ENABLE_ZSTD=ON -DLLVM_ENABLE_ZLIB=ON \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
