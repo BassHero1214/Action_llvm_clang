@@ -113,6 +113,10 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -march=armv8-a+crc+crypto -flto=auto -ffat-lto-objects -fomit-frame-pointer -ffunction-sections -fdata-sections" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -march=armv8-a+crc+crypto -flto=auto -ffat-lto-objects -fomit-frame-pointer -ffunction-sections -fdata-sections" \
+            -DCMAKE_EXE_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -flto=auto" \
+            -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -flto=auto" \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DLLVM_HOST_TRIPLE=aarch64-linux-gnu \
             -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
@@ -125,6 +129,7 @@ jobs:
             -DLLVM_ENABLE_TERMINFO=ON \
             -DLLVM_ENABLE_LTO=${{ inputs.enable_lto && 'Thin' || 'OFF' }} \
             -DLLVM_ENABLE_BOLT=${{ inputs.enable_bolt && 'ON' || 'OFF' }} \
+            -DLLVM_OPTIMIZED_TABLEGEN=ON \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
             -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
             -DLLVM_BUILD_LLVM_DYLIB=ON \
