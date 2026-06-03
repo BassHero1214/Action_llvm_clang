@@ -135,8 +135,8 @@ jobs:
             CXX="$CLANG_CXX"
             LTO="-DLLVM_ENABLE_LTO=Thin"
             LD="-DLLVM_USE_LINKER=$CLANG_LD"
-            CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-            LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -fuse-ld=lld"
+            CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections --gcc-toolchain=/usr"
+            LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -fuse-ld=lld --gcc-toolchain=/usr -L/usr/lib/gcc-cross/aarch64-linux-gnu/14"
           else
             sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             CC=aarch64-linux-gnu-gcc
