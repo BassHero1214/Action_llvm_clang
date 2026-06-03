@@ -50,6 +50,10 @@ on:
         type: boolean
         default: true
 
+concurrency:
+  group: native-arm64-build
+  cancel-in-progress: true
+
 env:
   LLVM_VERSION: ${{ github.event.inputs.llvm_version || 'llvmorg-19.1.7' }}
   BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
