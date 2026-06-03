@@ -24,6 +24,21 @@ on:
           - ubuntu-24.04-8core
           - ubuntu-24.04-16core
         default: "ubuntu-24.04"
+      enable_lto:
+        description: "Enable ThinLTO (requires 2-stage Clang bootstrap, slower build)"
+        required: false
+        type: boolean
+        default: false
+      enable_pgo:
+        description: "Enable PGO (reserved for future)"
+        required: false
+        type: boolean
+        default: false
+      enable_bolt:
+        description: "Enable BOLT optimization (reserved for future)"
+        required: false
+        type: boolean
+        default: false
       upload_artifact:
         description: "Upload build artifact"
         required: false
@@ -108,6 +123,8 @@ jobs:
             -DLLVM_ENABLE_ZSTD=ON \
             -DLLVM_ENABLE_ZLIB=ON \
             -DLLVM_ENABLE_TERMINFO=ON \
+            -DLLVM_ENABLE_LTO=${{ inputs.enable_lto && 'Thin' || 'OFF' }} \
+            -DLLVM_ENABLE_BOLT=${{ inputs.enable_bolt && 'ON' || 'OFF' }} \
             -DLLVM_PARALLEL_COMPILE_JOBS="$(nproc)" \
             -DLLVM_PARALLEL_LINK_JOBS="$(nproc)" \
             -DLLVM_BUILD_LLVM_DYLIB=ON \
