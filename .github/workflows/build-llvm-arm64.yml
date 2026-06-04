@@ -6,7 +6,7 @@ on:
       llvm_version:
         description: "LLVM version tag"
         required: false
-        default: "llvmorg-19.1.7"
+        default: "llvmorg-22.1.7"
       build_type:
         description: "Build type"
         required: false
@@ -25,17 +25,12 @@ on:
           - ubuntu-24.04-16core
         default: "ubuntu-24.04"
       enable_lto:
-        description: "Enable ThinLTO"
+        description: "GCC LTO (-flto)"
         required: false
         type: boolean
         default: true
-      custom_clang_url:
-        description: "URL to pre-built Clang archive (.tar.xz or .tar.gz). Leave empty to use system clang-18"
-        required: false
-        type: string
-        default: ""
       enable_pgo:
-        description: "Enable PGO (reserved for future)"
+        description: "PGO (2-stage, experimental)"
         required: false
         type: boolean
         default: false
@@ -55,13 +50,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LLVM_VERSION: ${{ github.event.inputs.llvm_version || 'llvmorg-19.1.7' }}
+  LLVM_VERSION: ${{ github.event.inputs.llvm_version || 'llvmorg-22.1.7' }}
   BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
   ARTIFACT_NAME: llvm-clang-arm64-native
 
 jobs:
   build-llvm:
-    name: "Build LLVM ${{ inputs.llvm_version || 'llvmorg-19.1.7' }} (Native ARM64)"
+    name: "Build LLVM ${{ inputs.llvm_version || 'llvmorg-22.1.7' }} (Native ARM64)"
     runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 360
 
@@ -109,7 +104,8 @@ jobs:
           echo "STAGE1_DIR=$STAGE1_DIR" >> "$GITHUB_ENV"
           echo "STAGE1_INSTALL=$STAGE1_INSTALL" >> "$GITHUB_ENV"
 
-          BASE_CFLAGS="-O2 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          BASE_CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          [ "${{ inputs.enable_lto }}" = "true" ] && BASE_CFLAGS="$BASE_CFLAGS -flto"
           BASE_LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
 
           if [ "${{ inputs.enable_pgo }}" = "true" ]; then
