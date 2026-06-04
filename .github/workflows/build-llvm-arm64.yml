@@ -25,7 +25,7 @@ on:
           - ubuntu-24.04-16core
         default: "ubuntu-24.04"
       enable_lto:
-        description: "GCC LTO (-flto)"
+        description: "Clang ThinLTO (-flto=thin)"
         required: false
         type: boolean
         default: true
@@ -75,9 +75,20 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             ninja-build cmake ccache python3 flex bison pkg-config xz-utils \
-            binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            clang lld binutils-aarch64-linux-gnu \
             libc6-dev-arm64-cross libc6-arm64-cross libstdc++-14-dev-arm64-cross libgcc-14-dev-arm64-cross \
             linux-libc-dev-arm64-cross qemu-user-static
+
+          # Fix ARM64 sysroot libc.so linker script for LLD compatibility
+          # The default script references multiarch paths that LLD can't resolve
+          SYSROOT=/usr/aarch64-linux-gnu
+          sudo mkdir -p "$SYSROOT/lib/aarch64-linux-gnu"
+          sudo mkdir -p "$SYSROOT/usr/lib/aarch64-linux-gnu"
+          # /lib/aarch64-linux-gnu/libc.so.6 -> ../libc.so.6
+          sudo ln -sf ../libc.so.6 "$SYSROOT/lib/aarch64-linux-gnu/libc.so.6"
+          # /usr/lib/aarch64-linux-gnu/libc_nonshared.a -> ../../../lib/libc_nonshared.a
+          sudo ln -sf ../../../lib/libc_nonshared.a "$SYSROOT/usr/lib/aarch64-linux-gnu/libc_nonshared.a"
+
           sudo mkdir -p /ccache && sudo chown "$(id -u):$(id -g)" /ccache
           ccache --set-config=max_size=20G -z
           echo "CCACHE_DIR=/ccache" >> "$GITHUB_ENV"
@@ -110,8 +121,8 @@ jobs:
           echo "STAGE1_INSTALL=$STAGE1_INSTALL" >> "$GITHUB_ENV"
 
           BASE_CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
-          [ "${{ inputs.enable_lto }}" = "true" ] && BASE_CFLAGS="$BASE_CFLAGS -flto"
-          BASE_LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
+          [ "${{ inputs.enable_lto }}" = "true" ] && BASE_CFLAGS="$BASE_CFLAGS -flto=thin"
+          BASE_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
 
           if [ "${{ inputs.enable_pgo }}" = "true" ]; then
             PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
@@ -127,7 +138,9 @@ jobs:
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$STAGE1_DIR" -G "Ninja" -Wno-dev \
             -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_CROSSCOMPILING=ON \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_TARGET=aarch64-linux-gnu \
+            -DCMAKE_CXX_COMPILER_TARGET=aarch64-linux-gnu \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS_RELEASE="$BASE_CFLAGS $PGO_CFLAGS" \
@@ -202,13 +215,16 @@ jobs:
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
           OPT_CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          [ "${{ inputs.enable_lto }}" = "true" ] && OPT_CFLAGS="$OPT_CFLAGS -flto=thin"
           PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
-          OPT_LDFLAGS="-Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
+          OPT_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
 
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$BUILD_DIR" -G "Ninja" -Wno-dev \
             -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_CROSSCOMPILING=ON \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_TARGET=aarch64-linux-gnu \
+            -DCMAKE_CXX_COMPILER_TARGET=aarch64-linux-gnu \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-use=$PGO_DIR -fprofile-correction" \
