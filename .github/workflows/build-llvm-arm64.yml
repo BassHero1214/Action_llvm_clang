@@ -121,6 +121,9 @@ jobs:
             PGO_CFLAGS=""
           fi
 
+          echo "BASE_CFLAGS=$BASE_CFLAGS" >> "$GITHUB_ENV"
+          echo "PGO_CFLAGS=$PGO_CFLAGS" >> "$GITHUB_ENV"
+
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$STAGE1_DIR" -G "Ninja" -Wno-dev \
             -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_CROSSCOMPILING=ON \
