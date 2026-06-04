@@ -39,6 +39,11 @@ on:
         required: false
         type: boolean
         default: false
+      quick_test:
+        description: "Quick test only (CMake + compile 1 file, skip full build)"
+        required: false
+        type: boolean
+        default: false
       upload_artifact:
         description: "Upload build artifact"
         required: false
@@ -139,13 +144,31 @@ jobs:
             -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_ENABLE_ASSERTIONS=OFF
 
+      # ==========================================================
+      # Quick test: compile 1 file to validate optimization flags
+      # ==========================================================
+      - name: "Quick Test: verify optimization flags"
+        if: ${{ inputs.quick_test }}
+        run: |
+          set -euo pipefail
+          cd "$STAGE1_DIR"
+          echo "=== Testing with: $BASE_CFLAGS $PGO_CFLAGS ==="
+          TARGET=$(ninja -t targets all 2>/dev/null | grep -m1 "\.cpp\.o" | awk '{print $1}')
+          if [ -z "$TARGET" ]; then
+            TARGET=$(ninja -t targets all 2>/dev/null | grep -m1 "\.c\.o" | awk '{print $1}')
+          fi
+          ninja -j1 "$TARGET" 2>&1 | tail -20
+          echo "=== QUICK TEST PASSED ==="
+
       - name: "Stage 1: Build"
+        if: ${{ !inputs.quick_test }}
         run: |
           cd "$STAGE1_DIR"
           ninja -j"$(nproc)" clang lld llvm-ar llvm-nm llvm-objcopy llvm-objdump \
             llvm-ranlib llvm-readelf llvm-size llvm-strings llvm-strip
 
       - name: "Stage 1: Install"
+        if: ${{ !inputs.quick_test }}
         run: |
           cd "$STAGE1_DIR"
           ninja install
@@ -209,14 +232,14 @@ jobs:
             -DLLVM_ENABLE_ASSERTIONS=OFF
 
       - name: "Stage 2: Build"
-        if: ${{ inputs.enable_pgo }}
+        if: ${{ inputs.enable_pgo && !inputs.quick_test }}
         run: |
           cd "$BUILD_DIR"
           ninja -j"$(nproc)" clang lld llvm-ar llvm-nm llvm-objcopy llvm-objdump \
             llvm-ranlib llvm-readelf llvm-size llvm-strings llvm-strip
 
       - name: "Stage 2: Install"
-        if: ${{ inputs.enable_pgo }}
+        if: ${{ inputs.enable_pgo && !inputs.quick_test }}
         run: |
           cd "$BUILD_DIR"
           ninja install
@@ -226,7 +249,7 @@ jobs:
       # Non-PGO path: use Stage 1 directly
       # ==========================================================
       - name: "Use Stage 1 as final"
-        if: ${{ !inputs.enable_pgo }}
+        if: ${{ !inputs.enable_pgo && !inputs.quick_test }}
         run: |
           echo "BUILD_DIR=$STAGE1_DIR" >> "$GITHUB_ENV"
           echo "INSTALL_DIR=$STAGE1_INSTALL" >> "$GITHUB_ENV"
