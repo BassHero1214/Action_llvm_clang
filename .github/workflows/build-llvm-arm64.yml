@@ -75,7 +75,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             ninja-build cmake ccache python3 flex bison pkg-config xz-utils \
-            clang lld binutils-aarch64-linux-gnu \
+            clang lld llvm-18-tools binutils-aarch64-linux-gnu \
             libc6-dev-arm64-cross libc6-arm64-cross libstdc++-14-dev-arm64-cross libgcc-14-dev-arm64-cross \
             linux-libc-dev-arm64-cross qemu-user-static
 
@@ -102,6 +102,22 @@ jobs:
           key: ccache-arm64-native-${{ env.LLVM_VERSION }}-${{ github.run_id }}
           restore-keys: ccache-arm64-native-${{ env.LLVM_VERSION }}-
 
+      # ==========================================================
+      # Restore cached Stage 1 (skip rebuild if available)
+      # ==========================================================
+      - name: Restore Stage 1 cache
+        uses: actions/cache/restore@v4
+        id: stage1-cache
+        with:
+          path: ${{ github.workspace }}/stage1-install
+          key: stage1-arm64-${{ env.LLVM_VERSION }}-lto${{ inputs.enable_lto }}-pgo${{ inputs.enable_pgo }}
+
+      - name: Set Stage 1 path (cached)
+        if: ${{ steps.stage1-cache.outputs.cache-hit == 'true' }}
+        run: |
+          echo "STAGE1_INSTALL=$GITHUB_WORKSPACE/stage1-install" >> "$GITHUB_ENV"
+          echo "=== Using cached Stage 1 ==="
+
       - name: Clone LLVM project
         run: |
           git clone --depth 1 --branch "$LLVM_VERSION" https://github.com/llvm/llvm-project.git "$GITHUB_WORKSPACE/llvm-project"
@@ -112,7 +128,7 @@ jobs:
       # Bootstrap: build ARM64 profiling runtime for PGO support
       # ==========================================================
       - name: "Bootstrap ARM64 profiling runtime"
-        if: ${{ inputs.enable_pgo }}
+        if: ${{ inputs.enable_pgo && steps.stage1-cache.outputs.cache-hit != 'true' }}
         run: |
           set -euo pipefail
           echo "=== Bootstrapping ARM64 compiler-rt profile library ==="
@@ -145,6 +161,7 @@ jobs:
       # STAGE 1: Instrumented build (for PGO) or Normal build
       # ==========================================================
       - name: "Stage 1: Configure"
+        if: ${{ steps.stage1-cache.outputs.cache-hit != 'true' }}
         run: |
           set -euo pipefail
           STAGE1_DIR="$GITHUB_WORKSPACE/stage1"
@@ -212,18 +229,25 @@ jobs:
           echo "=== QUICK TEST PASSED ==="
 
       - name: "Stage 1: Build"
-        if: ${{ !inputs.quick_test }}
+        if: ${{ !inputs.quick_test && steps.stage1-cache.outputs.cache-hit != 'true' }}
         run: |
           cd "$STAGE1_DIR"
           ninja -j"$(nproc)" clang lld llvm-ar llvm-nm llvm-objcopy llvm-objdump \
             llvm-ranlib llvm-readelf llvm-size llvm-strings llvm-strip
 
       - name: "Stage 1: Install"
-        if: ${{ !inputs.quick_test }}
+        if: ${{ !inputs.quick_test && steps.stage1-cache.outputs.cache-hit != 'true' }}
         run: |
           cd "$STAGE1_DIR"
           ninja install
           echo "Stage 1 done"
+
+      - name: Save Stage 1 cache
+        if: ${{ !inputs.quick_test && steps.stage1-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/stage1-install
+          key: stage1-arm64-${{ env.LLVM_VERSION }}-lto${{ inputs.enable_lto }}-pgo${{ inputs.enable_pgo }}
 
       # ==========================================================
       # PGO Training: run instrumented Clang via QEMU
@@ -236,6 +260,14 @@ jobs:
             qemu-aarch64-static -L /usr/aarch64-linux-gnu "$STAGE1_INSTALL/bin/clang" -O2 -c /tmp/train.c -o /tmp/train.o
           done
           echo "PGO profiles collected"
+
+      - name: "Merge PGO profiles"
+        if: ${{ inputs.enable_pgo && !inputs.quick_test }}
+        run: |
+          PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
+          llvm-profdata-18 merge -output="$PGO_DIR/merged.profdata" "$PGO_DIR"/*.profraw
+          echo "PGO_PROFDATA=$PGO_DIR/merged.profdata" >> "$GITHUB_ENV"
+          ls -la "$PGO_DIR"
 
       # ==========================================================
       # STAGE 2: PGO-optimized build (or skip if PGO off)
@@ -251,8 +283,14 @@ jobs:
 
           OPT_CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
           [ "${{ inputs.enable_lto }}" = "true" ] && OPT_CFLAGS="$OPT_CFLAGS -flto=thin"
-          PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
+          PGO_PROFDATA="${PGO_PROFDATA:-}"
           OPT_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
+
+          if [ -n "$PGO_PROFDATA" ] && [ -f "$PGO_PROFDATA" ]; then
+            PGO_USE_FLAGS="-fprofile-use=$PGO_PROFDATA -fprofile-correction"
+          else
+            PGO_USE_FLAGS=""
+          fi
 
           cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$BUILD_DIR" -G "Ninja" -Wno-dev \
             -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
@@ -263,8 +301,8 @@ jobs:
             -DCMAKE_CXX_COMPILER_TARGET=aarch64-linux-gnu \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-use=$PGO_DIR -fprofile-correction" \
-            -DCMAKE_CXX_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-use=$PGO_DIR -fprofile-correction" \
+            -DCMAKE_C_FLAGS_RELEASE="$OPT_CFLAGS $PGO_USE_FLAGS" \
+            -DCMAKE_CXX_FLAGS_RELEASE="$OPT_CFLAGS $PGO_USE_FLAGS" \
             -DCMAKE_EXE_LINKER_FLAGS="$OPT_LDFLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$OPT_LDFLAGS" \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
