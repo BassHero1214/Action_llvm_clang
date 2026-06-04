@@ -233,7 +233,7 @@ jobs:
         run: |
           echo 'int main(void) { return 0; }' > /tmp/train.c
           for i in $(seq 1 3); do
-            qemu-aarch64-static "$STAGE1_INSTALL/bin/clang" -O2 -c /tmp/train.c -o /tmp/train.o
+            qemu-aarch64-static -L /usr/aarch64-linux-gnu "$STAGE1_INSTALL/bin/clang" -O2 -c /tmp/train.c -o /tmp/train.o
           done
           echo "PGO profiles collected"
 
