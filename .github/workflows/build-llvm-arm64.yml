@@ -277,6 +277,7 @@ jobs:
       # Verify: MUST be ARM64 ELF binaries
       # ==========================================================
       - name: Verify ARM64 ELF binaries
+        if: ${{ !inputs.quick_test }}
         run: |
           set -euo pipefail
           echo "=== Binary format verification ==="
@@ -291,7 +292,7 @@ jobs:
 
       - name: Package toolchain
         id: package
-        if: ${{ inputs.upload_artifact }}
+        if: ${{ inputs.upload_artifact && !inputs.quick_test }}
         run: |
           ARCHIVE_NAME="${{ env.ARTIFACT_NAME }}-${{ env.LLVM_VERSION }}"
           ARCHIVE_PATH="$GITHUB_WORKSPACE/${ARCHIVE_NAME}.tar.xz"
@@ -301,7 +302,7 @@ jobs:
           ls -lh "$ARCHIVE_PATH"
 
       - name: Upload artifact
-        if: ${{ inputs.upload_artifact }}
+        if: ${{ inputs.upload_artifact && !inputs.quick_test }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.archive_name }}
