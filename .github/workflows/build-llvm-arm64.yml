@@ -156,9 +156,9 @@ jobs:
           set -euo pipefail
           cd "$STAGE1_DIR"
           echo "=== Testing with: $BASE_CFLAGS $PGO_CFLAGS ==="
-          TARGET=$(ninja -t targets all 2>/dev/null | grep -m1 "\.cpp\.o" | awk '{print $1}')
+          TARGET=$(ninja -t targets all 2>/dev/null | grep -m1 "\.cpp\.o" | awk -F: '{print $1}')
           if [ -z "$TARGET" ]; then
-            TARGET=$(ninja -t targets all 2>/dev/null | grep -m1 "\.c\.o" | awk '{print $1}')
+            TARGET=$(ninja -t targets all 2>/dev/null | grep -m1 "\.c\.o" | awk -F: '{print $1}')
           fi
           ninja -j1 "$TARGET" 2>&1 | tail -20
           echo "=== QUICK TEST PASSED ==="
