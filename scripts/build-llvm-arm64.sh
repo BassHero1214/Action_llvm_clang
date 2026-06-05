@@ -158,6 +158,7 @@ OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z
 echo "[Verify] Testing compilation with current flags..."
 VERIFY_DIR="$PROJECT_DIR/.verify-build"
 rm -rf "$VERIFY_DIR"
+mkdir -p "$VERIFY_DIR"
 
 # Minimal CMake configure using only AArch64 target for speed
 echo "  Configuring..."
