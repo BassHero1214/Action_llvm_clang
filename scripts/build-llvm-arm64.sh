@@ -42,7 +42,19 @@ STAGE2_DIR="${STAGE2_DIR:-$PROJECT_DIR/stage2}"
 STAGE2_INSTALL="${STAGE2_INSTALL:-$PROJECT_DIR/install}"
 JOBS="${JOBS:-$(nproc)}"
 
-# ---- Flags (aligned with CI workflow) ----
+# ---- Detect best available Clang ----
+# Prefer system Clang (knows where native headers are)
+if [ -x /usr/bin/clang ] && [ -x /usr/bin/clang++ ]; then
+    HOST_CC=/usr/bin/clang
+    HOST_CXX=/usr/bin/clang++
+elif command -v clang &>/dev/null && command -v clang++ &>/dev/null; then
+    HOST_CC=clang
+    HOST_CXX=clang++
+else
+    echo "ERROR: clang not found. Install: sudo apt install clang"
+    exit 1
+fi
+echo "Using compiler: $HOST_CC"
 OPT_CFLAGS="-O3 -march=armv8.5-a+sve2+crc+crypto+fp16+rcpc+dotprod"
 OPT_CFLAGS="$OPT_CFLAGS -fomit-frame-pointer -ffunction-sections -fdata-sections"
 OPT_CFLAGS="$OPT_CFLAGS -fno-plt -fmerge-all-constants -funique-internal-linkage-names"
@@ -55,8 +67,8 @@ OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z
 COMMON_CMAKE_FLAGS=(
     -G Ninja -Wno-dev
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
-    -DCMAKE_C_COMPILER=clang
-    -DCMAKE_CXX_COMPILER=clang++
+    -DCMAKE_C_COMPILER="$HOST_CC"
+    -DCMAKE_CXX_COMPILER="$HOST_CXX"
     -DCMAKE_C_COMPILER_LAUNCHER=ccache
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
@@ -205,26 +217,34 @@ fi
 echo "[Build] Compiling (jobs=$JOBS)..."
 ninja -C "$BUILD_DIR" -j"$JOBS" "${NINJA_TARGETS[@]}"
 
-# ---- BOLT ----
-if [ "$ENABLE_BOLT" = true ]; then
-    echo ""
-    echo "[BOLT] Optimizing binaries..."
-    for bin in clang clang++ lld; do
-        if [ -f "$INSTALL_DIR/bin/$bin" ]; then
-            perf record -e cycles:u -o /tmp/bolt.perf -- "$INSTALL_DIR/bin/$bin" --version
-            llvm-bolt "$INSTALL_DIR/bin/$bin" -o "$INSTALL_DIR/bin/$bin.bolt" \
-                -data=/tmp/bolt.perf -reorder-blocks=ext-tsp -reorder-functions=hfsort+ \
-                -split-functions -split-all-cold -dyno-stats
-            mv "$INSTALL_DIR/bin/$bin.bolt" "$INSTALL_DIR/bin/$bin"
-            rm -f /tmp/bolt.perf
-        fi
-    done
-    echo "[BOLT] Done"
-fi
-
 # ---- Install ----
 echo "[Install] Installing to $INSTALL_DIR..."
 ninja -C "$BUILD_DIR" install
+
+# ---- BOLT (after install, using built llvm-bolt) ----
+if [ "$ENABLE_BOLT" = true ]; then
+    echo ""
+    echo "[BOLT] Optimizing binaries..."
+    BOLT_BIN="$INSTALL_DIR/bin/llvm-bolt"
+    if [ ! -f "$BOLT_BIN" ]; then
+        echo "  WARNING: llvm-bolt not found, skipping BOLT"
+    else
+        for bin in clang clang++ lld; do
+            if [ -f "$INSTALL_DIR/bin/$bin" ]; then
+                echo "  BOLT optimizing: $bin"
+                perf record -e cycles:u -o /tmp/bolt.perf -- "$INSTALL_DIR/bin/$bin" --version 2>/dev/null || true
+                "$BOLT_BIN" "$INSTALL_DIR/bin/$bin" -o "$INSTALL_DIR/bin/$bin.bolt" \
+                    -data=/tmp/bolt.perf -reorder-blocks=ext-tsp -reorder-functions=hfsort+ \
+                    -split-functions -split-all-cold -dyno-stats 2>/dev/null || true
+                if [ -f "$INSTALL_DIR/bin/$bin.bolt" ]; then
+                    mv "$INSTALL_DIR/bin/$bin.bolt" "$INSTALL_DIR/bin/$bin"
+                fi
+                rm -f /tmp/bolt.perf
+            fi
+        done
+        echo "[BOLT] Done"
+    fi
+fi
 
 # ---- Create convenience symlinks ----
 cd "$INSTALL_DIR/bin"
