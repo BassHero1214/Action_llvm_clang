@@ -187,18 +187,15 @@ cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$VERIFY_DIR" -G Ninja -Wno-dev \
 }
 
 # Compile 3 files + link 1 static lib — show live progress
-echo "  Compiling (3 files + 1 link)..."
-# Use known-fast targets instead of scanning all (ninja -t targets all is slow)
+echo "  Compiling (1 file + 1 link)..."
 TARGETS=(
     "lib/Demangle/CMakeFiles/LLVMDemangle.dir/Demangle.cpp.o"
-    "lib/Demangle/CMakeFiles/LLVMDemangle.dir/MicrosoftDemangle.cpp.o"
-    "lib/Demangle/CMakeFiles/LLVMDemangle.dir/ItaniumDemangle.cpp.o"
 )
 STATIC_LIB="lib/libLLVMDemangle.a"
 
 PASSED=0
 for t in "${TARGETS[@]}"; do
-    printf "    [%d/3] %s ... " $((PASSED+1)) "$(basename "$t")"
+    printf "    [compile] %s ... " "$(basename "$t")"
     if ninja -C "$VERIFY_DIR" -j1 "$t" &>/dev/null; then
         echo "OK"
         ((PASSED++))
@@ -212,7 +209,7 @@ done
 printf "    [link] %s ... " "$(basename "$STATIC_LIB")"
 if ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" &>/dev/null; then
     echo "OK"
-    echo "  PASS: $PASSED .o + $STATIC_LIB linked"
+    echo "  PASS: compile + $STATIC_LIB linked"
 else
     echo "FAIL"
     ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" 2>&1 | tail -20
