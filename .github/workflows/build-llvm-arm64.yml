@@ -133,6 +133,8 @@ jobs:
           set -euo pipefail
           echo "=== Bootstrapping ARM64 compiler-rt profile library ==="
           RT_DIR="$GITHUB_WORKSPACE/build-rt"
+          # Build with -isystem to ensure LLVM source headers take priority over
+          # system clang's built-in headers (prevents version mismatch: 9 vs 10)
           cmake -S "$LLVM_SOURCE_DIR/compiler-rt" -B "$RT_DIR" -G Ninja -Wno-dev \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_C_COMPILER_TARGET=aarch64-linux-gnu \
@@ -140,6 +142,8 @@ jobs:
             -DCMAKE_CXX_COMPILER_TARGET=aarch64-linux-gnu \
             -DCMAKE_SYSROOT=/usr/aarch64-linux-gnu \
             -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+            -DCMAKE_C_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
+            -DCMAKE_CXX_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
             -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
             -DCOMPILER_RT_BUILD_PROFILE=ON \
             -DCOMPILER_RT_BUILD_BUILTINS=OFF \
