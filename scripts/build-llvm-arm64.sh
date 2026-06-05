@@ -118,7 +118,17 @@ if ! ninja --version &>/dev/null; then
 fi
 echo "  PASS: Ninja $(ninja --version)"
 
-# 5. CPU features (detect native arch)
+# 5. ccache
+if command -v ccache &>/dev/null; then
+    ccache --set-config=max_size=20G
+    ccache -z >/dev/null
+    echo "  PASS: ccache $(ccache --version | head -1) (max 20G)"
+else
+    echo "  WARN: ccache not installed — builds won't be cached"
+    echo "        Install: sudo apt install ccache"
+fi
+
+# 6. CPU features (detect native arch)
 HOST_MARCH=$("$HOST_CC" -march=native -E - </dev/null 2>&1 | head -1 || echo "unknown")
 echo "  CPU:  $HOST_MARCH"
 
