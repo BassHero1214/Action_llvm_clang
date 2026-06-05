@@ -251,8 +251,8 @@ if [ "$ENABLE_PGO" = true ]; then
     cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$STAGE1_DIR" \
         "${COMMON_CMAKE_FLAGS[@]}" \
         -DCMAKE_INSTALL_PREFIX="$STAGE1_INSTALL" \
-        -DCMAKE_C_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-generate=$PGO_DIR" \
-        -DCMAKE_CXX_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-generate=$PGO_DIR"
+        -DCMAKE_C_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-generate=$PGO_DIR -mllvm -vp-counters-per-site=4" \
+        -DCMAKE_CXX_FLAGS_RELEASE="$OPT_CFLAGS -fprofile-generate=$PGO_DIR -mllvm -vp-counters-per-site=4"
 
     echo "[Stage 1] Building instrumented clang..."
     ninja -C "$STAGE1_DIR" -j"$JOBS" "${NINJA_TARGETS[@]}"
