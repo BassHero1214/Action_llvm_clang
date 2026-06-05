@@ -174,10 +174,10 @@ jobs:
           echo "STAGE1_DIR=$STAGE1_DIR" >> "$GITHUB_ENV"
           echo "STAGE1_INSTALL=$STAGE1_INSTALL" >> "$GITHUB_ENV"
 
-          BASE_CFLAGS="-O3 -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-plt -fmerge-all-constants"
+          BASE_CFLAGS="-O3 -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-plt -fmerge-all-constants -funique-internal-linkage-names"
           [ "${{ inputs.enable_lto }}" = "true" ] && BASE_CFLAGS="$BASE_CFLAGS -flto=thin"
-          BASE_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all"
-          [ "${{ inputs.enable_lto }}" = "true" ] && BASE_LDFLAGS="$BASE_LDFLAGS -Wl,--thinlto-cache-dir=$GITHUB_WORKSPACE/thinlto-cache"
+          BASE_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z,now"
+          [ "${{ inputs.enable_lto }}" = "true" ] && BASE_LDFLAGS="$BASE_LDFLAGS -flto=thin -Wl,--thinlto-cache-dir=$GITHUB_WORKSPACE/thinlto-cache"
 
           if [ "${{ inputs.enable_pgo }}" = "true" ]; then
             PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
@@ -215,7 +215,8 @@ jobs:
             -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_ENABLE_ASSERTIONS=OFF \
-            -DLLVM_ENABLE_LIBXML2=OFF
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_LTO=${{ inputs.enable_lto && 'Thin' || '' }}
 
       # ==========================================================
       # Quick test: compile 1 file to validate optimization flags
@@ -316,11 +317,11 @@ jobs:
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
-          OPT_CFLAGS="-O3 -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-plt -fmerge-all-constants"
+          OPT_CFLAGS="-O3 -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-plt -fmerge-all-constants -funique-internal-linkage-names"
           [ "${{ inputs.enable_lto }}" = "true" ] && OPT_CFLAGS="$OPT_CFLAGS -flto=thin"
           PGO_PROFDATA="${PGO_PROFDATA:-}"
-          OPT_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all"
-          [ "${{ inputs.enable_lto }}" = "true" ] && OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--thinlto-cache-dir=$GITHUB_WORKSPACE/thinlto-cache"
+          OPT_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z,now"
+          [ "${{ inputs.enable_lto }}" = "true" ] && OPT_LDFLAGS="$OPT_LDFLAGS -flto=thin -Wl,--thinlto-cache-dir=$GITHUB_WORKSPACE/thinlto-cache"
 
           if [ -n "$PGO_PROFDATA" ] && [ -f "$PGO_PROFDATA" ]; then
             PGO_USE_FLAGS="-fprofile-use=$PGO_PROFDATA -Wno-profile-instr-unprofiled"
@@ -353,7 +354,8 @@ jobs:
             -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_ENABLE_ASSERTIONS=OFF \
-            -DLLVM_ENABLE_LIBXML2=OFF
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_LTO=${{ inputs.enable_lto && 'Thin' || '' }}
 
       - name: "Stage 2: Build"
         if: ${{ inputs.enable_pgo && !inputs.quick_test }}
