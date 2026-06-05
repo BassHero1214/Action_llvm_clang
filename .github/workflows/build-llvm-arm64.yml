@@ -265,9 +265,17 @@ jobs:
         if: ${{ inputs.enable_pgo && !inputs.quick_test }}
         run: |
           PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
-          llvm-profdata-18 merge -output="$PGO_DIR/merged.profdata" "$PGO_DIR"/*.profraw
-          echo "PGO_PROFDATA=$PGO_DIR/merged.profdata" >> "$GITHUB_ENV"
-          ls -la "$PGO_DIR"
+          shopt -s nullglob
+          PROFRAW_FILES=("$PGO_DIR"/*.profraw)
+          if [ ${#PROFRAW_FILES[@]} -gt 0 ]; then
+            llvm-profdata-18 merge -output="$PGO_DIR/merged.profdata" "${PROFRAW_FILES[@]}"
+            echo "PGO_PROFDATA=$PGO_DIR/merged.profdata" >> "$GITHUB_ENV"
+            echo "=== PGO profile merged: $(wc -c < "$PGO_DIR/merged.profdata") bytes ==="
+          else
+            echo "=== WARNING: No .profraw files found, PGO disabled for Stage 2 ==="
+            echo "PGO_PROFDATA=" >> "$GITHUB_ENV"
+          fi
+          ls -la "$PGO_DIR" || true
 
       # ==========================================================
       # STAGE 2: PGO-optimized build (or skip if PGO off)
