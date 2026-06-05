@@ -21,11 +21,13 @@ set -euo pipefail
 ENABLE_PGO=false
 ENABLE_BOLT=false
 BUILD_TYPE="Release"
+CUSTOM_TOOLCHAIN=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --pgo)   ENABLE_PGO=true; shift ;;
-        --bolt)  ENABLE_BOLT=true; shift ;;
+        --pgo)       ENABLE_PGO=true; shift ;;
+        --bolt)      ENABLE_BOLT=true; shift ;;
+        --toolchain) CUSTOM_TOOLCHAIN="$2"; shift 2 ;;
         Release|RelWithDebInfo) BUILD_TYPE="$1"; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -43,8 +45,21 @@ STAGE2_INSTALL="${STAGE2_INSTALL:-$PROJECT_DIR/install}"
 JOBS="${JOBS:-$(nproc)}"
 
 # ---- Detect best available Clang ----
-# Prefer system Clang (knows where native headers are)
-if [ -x /usr/bin/clang ] && [ -x /usr/bin/clang++ ]; then
+if [ -n "$CUSTOM_TOOLCHAIN" ]; then
+    # Use user-specified toolchain
+    if [ ! -d "$CUSTOM_TOOLCHAIN" ]; then
+        echo "ERROR: Custom toolchain not found: $CUSTOM_TOOLCHAIN"
+        exit 1
+    fi
+    HOST_CC="$CUSTOM_TOOLCHAIN/bin/clang"
+    HOST_CXX="$CUSTOM_TOOLCHAIN/bin/clang++"
+    if [ ! -x "$HOST_CC" ]; then
+        echo "ERROR: $HOST_CC not found or not executable"
+        exit 1
+    fi
+    export PATH="$CUSTOM_TOOLCHAIN/bin:$PATH"
+    echo "Using toolchain: $CUSTOM_TOOLCHAIN"
+elif [ -x /usr/bin/clang ] && [ -x /usr/bin/clang++ ]; then
     HOST_CC=/usr/bin/clang
     HOST_CXX=/usr/bin/clang++
 elif command -v clang &>/dev/null && command -v clang++ &>/dev/null; then
@@ -54,7 +69,8 @@ else
     echo "ERROR: clang not found. Install: sudo apt install clang"
     exit 1
 fi
-echo "Using compiler: $HOST_CC"
+echo "  CC   : $HOST_CC ($("$HOST_CC" --version | head -1))"
+echo "  CXX  : $HOST_CXX"
 
 # =========================================================================
 # Pre-flight checks — fail fast before hours of compilation
@@ -78,11 +94,12 @@ fi
 echo "  PASS: Compile + link"
 
 # 3. LLD
-if ! ld.lld --version &>/dev/null; then
+LLD_BIN="${CUSTOM_TOOLCHAIN:+$CUSTOM_TOOLCHAIN/bin/}ld.lld"
+if ! ${LLD_BIN:-ld.lld} --version &>/dev/null; then
     echo "  FAIL: ld.lld not found. Install: sudo apt install lld"
     exit 1
 fi
-echo "  PASS: LLD $(ld.lld --version | head -1)"
+echo "  PASS: LLD $(${LLD_BIN:-ld.lld} --version | head -1)"
 
 # 4. Ninja
 if ! ninja --version &>/dev/null; then
