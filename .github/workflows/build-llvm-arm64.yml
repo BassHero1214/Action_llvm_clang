@@ -170,9 +170,10 @@ jobs:
           echo "STAGE1_DIR=$STAGE1_DIR" >> "$GITHUB_ENV"
           echo "STAGE1_INSTALL=$STAGE1_INSTALL" >> "$GITHUB_ENV"
 
-          BASE_CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          BASE_CFLAGS="-O3 -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-plt -fmerge-all-constants"
           [ "${{ inputs.enable_lto }}" = "true" ] && BASE_CFLAGS="$BASE_CFLAGS -flto=thin"
-          BASE_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
+          BASE_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all"
+          [ "${{ inputs.enable_lto }}" = "true" ] && BASE_LDFLAGS="$BASE_LDFLAGS -Wl,--thinlto-cache-dir=$GITHUB_WORKSPACE/thinlto-cache"
 
           if [ "${{ inputs.enable_pgo }}" = "true" ]; then
             PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
@@ -289,10 +290,11 @@ jobs:
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
 
-          OPT_CFLAGS="-O3 -march=armv8-a+crc+crypto -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          OPT_CFLAGS="-O3 -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-plt -fmerge-all-constants"
           [ "${{ inputs.enable_lto }}" = "true" ] && OPT_CFLAGS="$OPT_CFLAGS -flto=thin"
           PGO_PROFDATA="${PGO_PROFDATA:-}"
-          OPT_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
+          OPT_LDFLAGS="-fuse-ld=lld -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all"
+          [ "${{ inputs.enable_lto }}" = "true" ] && OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--thinlto-cache-dir=$GITHUB_WORKSPACE/thinlto-cache"
 
           if [ -n "$PGO_PROFDATA" ] && [ -f "$PGO_PROFDATA" ]; then
             PGO_USE_FLAGS="-fprofile-use=$PGO_PROFDATA -fprofile-correction"
