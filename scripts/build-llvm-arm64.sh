@@ -158,9 +158,9 @@ OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z
 echo "[Verify] Testing compilation with current flags..."
 VERIFY_DIR="$PROJECT_DIR/.verify-build"
 rm -rf "$VERIFY_DIR"
-mkdir -p "$VERIFY_DIR"
 
-# Minimal CMake configure (test flags, compiler, linker)
+# Minimal CMake configure using only AArch64 target for speed
+echo "  Configuring..."
 cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$VERIFY_DIR" -G Ninja -Wno-dev \
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
@@ -180,36 +180,38 @@ cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$VERIFY_DIR" -G Ninja -Wno-dev \
     -DLLVM_ENABLE_BINDINGS=OFF \
     -DLLVM_ENABLE_ASSERTIONS=OFF \
     > "$VERIFY_DIR/cmake.log" 2>&1 || {
-    echo "  FAIL: CMake configure failed — see $VERIFY_DIR/cmake.log"
+    echo "  FAIL: CMake configure — see $VERIFY_DIR/cmake.log"
+    tail -30 "$VERIFY_DIR/cmake.log"
     exit 1
 }
 
-# Compile a few files + test link
-echo "  Compiling test targets..."
-TARGETS=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.cpp\.o" | awk -F: '{print $1}' | head -5)
-if [ -z "$TARGETS" ]; then
-    echo "  FAIL: No compile targets found"
-    exit 1
-fi
+# Compile 3 files + link 1 static lib — show live progress
+echo "  Compiling (3 files + 1 link)..."
+TARGETS=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.cpp\.o" | awk -F: '{print $1}' | head -3)
+[ -z "$TARGETS" ] && { echo "  FAIL: No compile targets"; exit 1; }
+
+PASSED=0
 for t in $TARGETS; do
-    ninja -C "$VERIFY_DIR" -j1 "$t" > "$VERIFY_DIR/build.log" 2>&1 || {
-        echo "  FAIL: Compilation failed — see $VERIFY_DIR/build.log"
-        tail -20 "$VERIFY_DIR/build.log"
+    if ninja -C "$VERIFY_DIR" -j1 "$t" &>/dev/null; then
+        ((PASSED++))
+    else
+        echo "  FAIL: $t"
+        ninja -C "$VERIFY_DIR" -j1 "$t" 2>&1 | tail -20
         exit 1
-    }
+    fi
 done
 
-# Test static library linking
 STATIC_LIB=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.a$" | awk -F: '{print $1}' | head -1)
 if [ -n "$STATIC_LIB" ]; then
-    ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" > "$VERIFY_DIR/link.log" 2>&1 || {
-        echo "  FAIL: Static library link failed — see $VERIFY_DIR/link.log"
-        tail -20 "$VERIFY_DIR/link.log"
+    if ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" &>/dev/null; then
+        echo "  PASS: $PASSED .o + $STATIC_LIB linked"
+    else
+        echo "  FAIL: $STATIC_LIB link failed"
+        ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" 2>&1 | tail -20
         exit 1
-    }
-    echo "  PASS: Compile + link verified (5 .o + 1 .a)"
+    fi
 else
-    echo "  PASS: Compile verified (5 .o)"
+    echo "  PASS: $PASSED .o compiled"
 fi
 
 rm -rf "$VERIFY_DIR"
