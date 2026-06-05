@@ -136,6 +136,36 @@ else
 fi
 
 # =========================================================================
+# Bootstrap: build profiling runtime for PGO support
+# =========================================================================
+if [ "$ENABLE_PGO" = true ]; then
+    echo ""
+    echo "[Bootstrap] Building ARM64 profiling runtime..."
+    RT_DIR="$PROJECT_DIR/build-rt"
+    cmake -S "$LLVM_SOURCE_DIR/compiler-rt" -B "$RT_DIR" -G Ninja -Wno-dev \
+        -DCMAKE_C_COMPILER="$HOST_CC" \
+        -DCMAKE_CXX_COMPILER="$HOST_CXX" \
+        -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+        -DCMAKE_C_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
+        -DCMAKE_CXX_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
+        -DCOMPILER_RT_BUILD_PROFILE=ON \
+        -DCOMPILER_RT_BUILD_BUILTINS=OFF \
+        -DCOMPILER_RT_BUILD_SANITIZERS=OFF \
+        -DCOMPILER_RT_BUILD_XRAY=OFF \
+        -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
+        -DCOMPILER_RT_BUILD_ORC=OFF \
+        -DCOMPILER_RT_BUILD_SCUDO_STANDALONE=OFF \
+        -DCOMPILER_RT_BUILD_GWP_ASAN=OFF \
+        -DCOMPILER_RT_BUILD_MEMPROF=OFF
+    ninja -C "$RT_DIR" clang_rt.profile-aarch64
+    # Install to system Clang resource directory
+    CLANG_RES="$("$HOST_CC" -print-resource-dir)"
+    sudo mkdir -p "$CLANG_RES/lib/linux"
+    sudo cp "$RT_DIR/lib/linux/libclang_rt.profile-aarch64.a" "$CLANG_RES/lib/linux/"
+    echo "[Bootstrap] ARM64 profiling runtime ready"
+fi
+
+# =========================================================================
 # STAGE 1: Instrumented build (PGO) or Normal build
 # =========================================================================
 if [ "$ENABLE_PGO" = true ]; then
