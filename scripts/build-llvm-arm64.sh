@@ -141,6 +141,71 @@ echo "  PASS: ${AVAIL_GB}GB disk free"
 
 echo ""
 
+# =========================================================================
+# Verify build — test compile+link before spending hours on full build
+# =========================================================================
+echo "[Verify] Testing compilation with current flags..."
+VERIFY_DIR="$PROJECT_DIR/.verify-build"
+rm -rf "$VERIFY_DIR"
+mkdir -p "$VERIFY_DIR"
+
+# Minimal CMake configure (test flags, compiler, linker)
+cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$VERIFY_DIR" -G Ninja -Wno-dev \
+    -DCMAKE_C_COMPILER="$HOST_CC" \
+    -DCMAKE_CXX_COMPILER="$HOST_CXX" \
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+    -DCMAKE_C_FLAGS_RELEASE="$OPT_CFLAGS" \
+    -DCMAKE_CXX_FLAGS_RELEASE="$OPT_CFLAGS" \
+    -DCMAKE_EXE_LINKER_FLAGS="$OPT_LDFLAGS" \
+    -DCMAKE_SHARED_LINKER_FLAGS="$OPT_LDFLAGS" \
+    -DLLVM_TARGETS_TO_BUILD="AArch64" \
+    -DLLVM_ENABLE_PROJECTS="clang;lld" \
+    -DLLVM_ENABLE_LTO=Thin \
+    -DLLVM_USE_LINKER=lld \
+    -DLLVM_INCLUDE_TESTS=OFF \
+    -DLLVM_INCLUDE_EXAMPLES=OFF \
+    -DLLVM_INCLUDE_BENCHMARKS=OFF \
+    -DLLVM_INCLUDE_DOCS=OFF \
+    -DLLVM_ENABLE_BINDINGS=OFF \
+    -DLLVM_ENABLE_ASSERTIONS=OFF \
+    > "$VERIFY_DIR/cmake.log" 2>&1 || {
+    echo "  FAIL: CMake configure failed — see $VERIFY_DIR/cmake.log"
+    exit 1
+}
+
+# Compile a few files + test link
+echo "  Compiling test targets..."
+TARGETS=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.cpp\.o" | awk -F: '{print $1}' | head -5)
+if [ -z "$TARGETS" ]; then
+    echo "  FAIL: No compile targets found"
+    exit 1
+fi
+for t in $TARGETS; do
+    ninja -C "$VERIFY_DIR" -j1 "$t" > "$VERIFY_DIR/build.log" 2>&1 || {
+        echo "  FAIL: Compilation failed — see $VERIFY_DIR/build.log"
+        tail -20 "$VERIFY_DIR/build.log"
+        exit 1
+    }
+done
+
+# Test static library linking
+STATIC_LIB=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.a$" | awk -F: '{print $1}' | head -1)
+if [ -n "$STATIC_LIB" ]; then
+    ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" > "$VERIFY_DIR/link.log" 2>&1 || {
+        echo "  FAIL: Static library link failed — see $VERIFY_DIR/link.log"
+        tail -20 "$VERIFY_DIR/link.log"
+        exit 1
+    }
+    echo "  PASS: Compile + link verified (5 .o + 1 .a)"
+else
+    echo "  PASS: Compile verified (5 .o)"
+fi
+
+rm -rf "$VERIFY_DIR"
+echo ""
+echo "  ✅ All checks passed — starting full build"
+echo ""
+
 # ---- Flags (local native build) ----
 # Use -march=native to auto-detect host CPU (avoids SIGILL on unsupported extensions)
 OPT_CFLAGS="-O3 -march=native"
