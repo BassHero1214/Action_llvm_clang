@@ -209,10 +209,21 @@ done
 printf "    [link] %s ... " "$(basename "$STATIC_LIB")"
 if ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" &>/dev/null; then
     echo "OK"
-    echo "  PASS: compile + $STATIC_LIB linked"
 else
     echo "FAIL"
     ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" 2>&1 | tail -20
+    exit 1
+fi
+
+# Real ThinLTO+LLD link test
+printf "    [lld+thinlto] ... "
+echo 'int main(){return 0;}' > "$VERIFY_DIR/test.c"
+if "$HOST_CC" -O2 -flto=thin -fuse-ld="$LLD_BIN" "$VERIFY_DIR/test.c" -o "$VERIFY_DIR/test" 2>"$VERIFY_DIR/link.log"; then
+    echo "OK"
+    echo "  PASS: compile + static lib + ThinLTO/LLD link"
+else
+    echo "FAIL"
+    tail -10 "$VERIFY_DIR/link.log"
     exit 1
 fi
 fi
