@@ -72,6 +72,17 @@ fi
 echo "  CC   : $HOST_CC ($("$HOST_CC" --version | head -1))"
 echo "  CXX  : $HOST_CXX"
 
+# ---- LLD: prefer system over custom toolchain (avoids linker bugs) ----
+if [ -x /usr/bin/ld.lld ]; then
+    LLD_BIN=/usr/bin/ld.lld
+elif command -v ld.lld &>/dev/null; then
+    LLD_BIN=ld.lld
+else
+    echo "ERROR: ld.lld not found. Install: sudo apt install lld"
+    exit 1
+fi
+echo "  LLD  : $LLD_BIN ($($LLD_BIN --version | head -1))"
+
 # =========================================================================
 # Pre-flight checks — fail fast before hours of compilation
 # =========================================================================
@@ -94,12 +105,11 @@ fi
 echo "  PASS: Compile + link"
 
 # 3. LLD
-LLD_BIN="${CUSTOM_TOOLCHAIN:+$CUSTOM_TOOLCHAIN/bin/}ld.lld"
-if ! ${LLD_BIN:-ld.lld} --version &>/dev/null; then
-    echo "  FAIL: ld.lld not found. Install: sudo apt install lld"
+if ! "$LLD_BIN" --version &>/dev/null; then
+    echo "  FAIL: $LLD_BIN not working"
     exit 1
 fi
-echo "  PASS: LLD $(${LLD_BIN:-ld.lld} --version | head -1)"
+echo "  PASS: LLD $("$LLD_BIN" --version | head -1)"
 
 # 4. Ninja
 if ! ninja --version &>/dev/null; then
@@ -129,7 +139,7 @@ OPT_CFLAGS="$OPT_CFLAGS -fno-plt -fmerge-all-constants -funique-internal-linkage
 OPT_CFLAGS="$OPT_CFLAGS -fstrict-vtable-pointers -fno-semantic-interposition"
 OPT_CFLAGS="$OPT_CFLAGS -flto=thin"
 
-OPT_LDFLAGS="-fuse-ld=lld -flto=thin -Wl,-O3 -Wl,--lto-O3"
+OPT_LDFLAGS="-fuse-ld=$LLD_BIN -flto=thin -Wl,-O3 -Wl,--lto-O3"
 OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z,now"
 
 COMMON_CMAKE_FLAGS=(
