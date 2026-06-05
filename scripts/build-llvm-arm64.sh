@@ -193,10 +193,12 @@ TARGETS=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.cpp\.o" | 
 
 PASSED=0
 for t in $TARGETS; do
+    printf "    [%d/3] %s ... " $((PASSED+1)) "$(basename "$t")"
     if ninja -C "$VERIFY_DIR" -j1 "$t" &>/dev/null; then
+        echo "OK"
         ((PASSED++))
     else
-        echo "  FAIL: $t"
+        echo "FAIL"
         ninja -C "$VERIFY_DIR" -j1 "$t" 2>&1 | tail -20
         exit 1
     fi
@@ -204,10 +206,12 @@ done
 
 STATIC_LIB=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.a$" | awk -F: '{print $1}' | head -1)
 if [ -n "$STATIC_LIB" ]; then
+    printf "    [link] %s ... " "$(basename "$STATIC_LIB")"
     if ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" &>/dev/null; then
+        echo "OK"
         echo "  PASS: $PASSED .o + $STATIC_LIB linked"
     else
-        echo "  FAIL: $STATIC_LIB link failed"
+        echo "FAIL"
         ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" 2>&1 | tail -20
         exit 1
     fi
