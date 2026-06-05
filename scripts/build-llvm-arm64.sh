@@ -206,8 +206,8 @@ if [ "$ENABLE_PGO" = true ]; then
         -DCMAKE_C_COMPILER="$HOST_CC" \
         -DCMAKE_CXX_COMPILER="$HOST_CXX" \
         -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-        -DCMAKE_C_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
-        -DCMAKE_CXX_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
+        -DCMAKE_C_FLAGS="-I$LLVM_SOURCE_DIR/compiler-rt/lib/profile -DINSTR_PROF_RAW_VERSION=10" \
+        -DCMAKE_CXX_FLAGS="-I$LLVM_SOURCE_DIR/compiler-rt/lib/profile -DINSTR_PROF_RAW_VERSION=10" \
         -DCOMPILER_RT_BUILD_PROFILE=ON \
         -DCOMPILER_RT_BUILD_BUILTINS=OFF \
         -DCOMPILER_RT_BUILD_SANITIZERS=OFF \

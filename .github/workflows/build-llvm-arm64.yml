@@ -142,8 +142,8 @@ jobs:
             -DCMAKE_CXX_COMPILER_TARGET=aarch64-linux-gnu \
             -DCMAKE_SYSROOT=/usr/aarch64-linux-gnu \
             -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-            -DCMAKE_C_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
-            -DCMAKE_CXX_FLAGS="-isystem $LLVM_SOURCE_DIR/compiler-rt/lib/profile" \
+            -DCMAKE_C_FLAGS="-I$LLVM_SOURCE_DIR/compiler-rt/lib/profile -DINSTR_PROF_RAW_VERSION=10" \
+            -DCMAKE_CXX_FLAGS="-I$LLVM_SOURCE_DIR/compiler-rt/lib/profile -DINSTR_PROF_RAW_VERSION=10" \
             -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
             -DCOMPILER_RT_BUILD_PROFILE=ON \
             -DCOMPILER_RT_BUILD_BUILTINS=OFF \
