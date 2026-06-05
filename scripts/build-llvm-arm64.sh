@@ -188,11 +188,16 @@ cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$VERIFY_DIR" -G Ninja -Wno-dev \
 
 # Compile 3 files + link 1 static lib — show live progress
 echo "  Compiling (3 files + 1 link)..."
-TARGETS=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.cpp\.o" | awk -F: '{print $1}' | head -3)
-[ -z "$TARGETS" ] && { echo "  FAIL: No compile targets"; exit 1; }
+# Use known-fast targets instead of scanning all (ninja -t targets all is slow)
+TARGETS=(
+    "lib/Demangle/CMakeFiles/LLVMDemangle.dir/Demangle.cpp.o"
+    "lib/Demangle/CMakeFiles/LLVMDemangle.dir/MicrosoftDemangle.cpp.o"
+    "lib/Demangle/CMakeFiles/LLVMDemangle.dir/ItaniumDemangle.cpp.o"
+)
+STATIC_LIB="lib/libLLVMDemangle.a"
 
 PASSED=0
-for t in $TARGETS; do
+for t in "${TARGETS[@]}"; do
     printf "    [%d/3] %s ... " $((PASSED+1)) "$(basename "$t")"
     if ninja -C "$VERIFY_DIR" -j1 "$t" &>/dev/null; then
         echo "OK"
@@ -204,19 +209,15 @@ for t in $TARGETS; do
     fi
 done
 
-STATIC_LIB=$(ninja -C "$VERIFY_DIR" -t targets all 2>/dev/null | grep "\.a$" | awk -F: '{print $1}' | head -1)
-if [ -n "$STATIC_LIB" ]; then
-    printf "    [link] %s ... " "$(basename "$STATIC_LIB")"
-    if ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" &>/dev/null; then
-        echo "OK"
-        echo "  PASS: $PASSED .o + $STATIC_LIB linked"
-    else
-        echo "FAIL"
-        ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" 2>&1 | tail -20
-        exit 1
-    fi
+printf "    [link] %s ... " "$(basename "$STATIC_LIB")"
+if ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" &>/dev/null; then
+    echo "OK"
+    echo "  PASS: $PASSED .o + $STATIC_LIB linked"
 else
-    echo "  PASS: $PASSED .o compiled"
+    echo "FAIL"
+    ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" 2>&1 | tail -20
+    exit 1
+fi
 fi
 
 rm -rf "$VERIFY_DIR"
