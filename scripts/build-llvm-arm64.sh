@@ -55,6 +55,14 @@ else
     exit 1
 fi
 echo "Using compiler: $HOST_CC"
+
+# Verify compiler can find C++ headers (avoid cryptic CMake errors later)
+if ! echo '#include <vector>' | "$HOST_CXX" -x c++ -c - -o /dev/null 2>/dev/null; then
+    echo "ERROR: $HOST_CXX cannot compile C++ (missing headers?)"
+    echo "  Fix: sudo apt install libstdc++-dev"
+    exit 1
+fi
+
 OPT_CFLAGS="-O3 -march=armv8.5-a+sve2+crc+crypto+fp16+rcpc+dotprod"
 OPT_CFLAGS="$OPT_CFLAGS -fomit-frame-pointer -ffunction-sections -fdata-sections"
 OPT_CFLAGS="$OPT_CFLAGS -fno-plt -fmerge-all-constants -funique-internal-linkage-names"
