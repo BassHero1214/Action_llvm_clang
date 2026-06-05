@@ -56,14 +56,57 @@ else
 fi
 echo "Using compiler: $HOST_CC"
 
-# Verify compiler can find C++ headers (avoid cryptic CMake errors later)
+# =========================================================================
+# Pre-flight checks — fail fast before hours of compilation
+# =========================================================================
+echo ""
+echo "[Check] Running pre-flight checks..."
+
+# 1. C++ headers
 if ! echo '#include <vector>' | "$HOST_CXX" -x c++ -c - -o /dev/null 2>/dev/null; then
-    echo "ERROR: $HOST_CXX cannot compile C++ (missing headers?)"
-    echo "  Fix: sudo apt install libstdc++-dev"
+    echo "  FAIL: $HOST_CXX cannot compile C++ (missing headers?)"
+    echo "  Fix:  sudo apt install libstdc++-dev"
     exit 1
 fi
+echo "  PASS: C++ headers"
 
-OPT_CFLAGS="-O3 -march=armv8.5-a+sve2+crc+crypto+fp16+rcpc+dotprod"
+# 2. Compile + link
+if ! echo 'int main(){return 0;}' | "$HOST_CXX" -x c++ - -o /dev/null 2>/dev/null; then
+    echo "  FAIL: $HOST_CXX cannot link executables"
+    exit 1
+fi
+echo "  PASS: Compile + link"
+
+# 3. LLD
+if ! ld.lld --version &>/dev/null; then
+    echo "  FAIL: ld.lld not found. Install: sudo apt install lld"
+    exit 1
+fi
+echo "  PASS: LLD $(ld.lld --version | head -1)"
+
+# 4. Ninja
+if ! ninja --version &>/dev/null; then
+    echo "  FAIL: ninja not found. Install: sudo apt install ninja-build"
+    exit 1
+fi
+echo "  PASS: Ninja $(ninja --version)"
+
+# 5. CPU features (detect native arch)
+HOST_MARCH=$("$HOST_CC" -march=native -E - </dev/null 2>&1 | head -1 || echo "unknown")
+echo "  CPU:  $HOST_MARCH"
+
+# 6. Disk space
+AVAIL_GB=$(df -BG . | tail -1 | awk '{print $4}' | sed 's/G//')
+if [ "$AVAIL_GB" -lt 20 ]; then
+    echo "  WARN: Only ${AVAIL_GB}GB free (need ~15GB for build)"
+fi
+echo "  PASS: ${AVAIL_GB}GB disk free"
+
+echo ""
+
+# ---- Flags (local native build) ----
+# Use -march=native to auto-detect host CPU (avoids SIGILL on unsupported extensions)
+OPT_CFLAGS="-O3 -march=native"
 OPT_CFLAGS="$OPT_CFLAGS -fomit-frame-pointer -ffunction-sections -fdata-sections"
 OPT_CFLAGS="$OPT_CFLAGS -fno-plt -fmerge-all-constants -funique-internal-linkage-names"
 OPT_CFLAGS="$OPT_CFLAGS -fstrict-vtable-pointers -fno-semantic-interposition"
