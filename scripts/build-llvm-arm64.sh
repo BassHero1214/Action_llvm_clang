@@ -141,6 +141,17 @@ echo "  PASS: ${AVAIL_GB}GB disk free"
 
 echo ""
 
+# ---- Flags (local native build) ----
+# Use -march=native to auto-detect host CPU (avoids SIGILL on unsupported extensions)
+OPT_CFLAGS="-O3 -march=native"
+OPT_CFLAGS="$OPT_CFLAGS -fomit-frame-pointer -ffunction-sections -fdata-sections"
+OPT_CFLAGS="$OPT_CFLAGS -fno-plt -fmerge-all-constants -funique-internal-linkage-names"
+OPT_CFLAGS="$OPT_CFLAGS -fstrict-vtable-pointers -fno-semantic-interposition"
+OPT_CFLAGS="$OPT_CFLAGS -flto=thin"
+
+OPT_LDFLAGS="-fuse-ld=$LLD_BIN -flto=thin -Wl,-O3 -Wl,--lto-O3"
+OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z,now"
+
 # =========================================================================
 # Verify build — test compile+link before spending hours on full build
 # =========================================================================
@@ -205,17 +216,6 @@ rm -rf "$VERIFY_DIR"
 echo ""
 echo "  ✅ All checks passed — starting full build"
 echo ""
-
-# ---- Flags (local native build) ----
-# Use -march=native to auto-detect host CPU (avoids SIGILL on unsupported extensions)
-OPT_CFLAGS="-O3 -march=native"
-OPT_CFLAGS="$OPT_CFLAGS -fomit-frame-pointer -ffunction-sections -fdata-sections"
-OPT_CFLAGS="$OPT_CFLAGS -fno-plt -fmerge-all-constants -funique-internal-linkage-names"
-OPT_CFLAGS="$OPT_CFLAGS -fstrict-vtable-pointers -fno-semantic-interposition"
-OPT_CFLAGS="$OPT_CFLAGS -flto=thin"
-
-OPT_LDFLAGS="-fuse-ld=$LLD_BIN -flto=thin -Wl,-O3 -Wl,--lto-O3"
-OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--gc-sections -Wl,--as-needed -Wl,--icf=all -Wl,-z,now"
 
 COMMON_CMAKE_FLAGS=(
     -G Ninja -Wno-dev
