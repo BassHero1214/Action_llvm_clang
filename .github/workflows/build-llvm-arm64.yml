@@ -256,11 +256,33 @@ jobs:
       - name: "PGO Training (QEMU)"
         if: ${{ inputs.enable_pgo && !inputs.quick_test }}
         run: |
-          echo 'int main(void) { return 0; }' > /tmp/train.c
-          for i in $(seq 1 3); do
-            qemu-aarch64-static -L /usr/aarch64-linux-gnu "$STAGE1_INSTALL/bin/clang" -O2 -c /tmp/train.c -o /tmp/train.o
+          set -euo pipefail
+          PGO_DIR="$GITHUB_WORKSPACE/pgo-profiles"
+          mkdir -p "$PGO_DIR"
+          cat > /tmp/train.c << 'TRAINEOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          struct Node { int v; struct Node* n; };
+          int main(void) {
+            int s=0; struct Node *h=NULL, *p;
+            for (int i=0;i<100;i++) {
+              p=malloc(sizeof(*p)); p->v=i; p->n=h; h=p;
+            }
+            for (p=h;p;p=p->n) s+=p->v;
+            printf("sum=%d\n",s);
+            while(h){p=h;h=h->n;free(p);}
+            return 0;
+          }
+          TRAINEOF
+          export LLVM_PROFILE_FILE="$PGO_DIR/train_%p.profraw"
+          for i in $(seq 1 5); do
+            qemu-aarch64-static -L /usr/aarch64-linux-gnu \
+              -E LLVM_PROFILE_FILE="$LLVM_PROFILE_FILE" \
+              "$STAGE1_INSTALL/bin/clang" -O2 -c /tmp/train.c -o /tmp/train.o
           done
-          echo "PGO profiles collected"
+          echo "=== PGO Training done, profiles: ==="
+          ls -la "$PGO_DIR/" || true
 
       - name: "Merge PGO profiles"
         if: ${{ inputs.enable_pgo && !inputs.quick_test }}
