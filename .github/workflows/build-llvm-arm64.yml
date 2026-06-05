@@ -323,7 +323,7 @@ jobs:
           [ "${{ inputs.enable_lto }}" = "true" ] && OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--thinlto-cache-dir=$GITHUB_WORKSPACE/thinlto-cache"
 
           if [ -n "$PGO_PROFDATA" ] && [ -f "$PGO_PROFDATA" ]; then
-            PGO_USE_FLAGS="-fprofile-use=$PGO_PROFDATA -fprofile-correction"
+            PGO_USE_FLAGS="-fprofile-use=$PGO_PROFDATA -Wno-profile-instr-unprofiled"
           else
             PGO_USE_FLAGS=""
           fi
