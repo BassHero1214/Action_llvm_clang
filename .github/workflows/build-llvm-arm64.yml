@@ -110,7 +110,7 @@ jobs:
         id: stage1-cache
         with:
           path: ${{ github.workspace }}/stage1-install
-          key: stage1-arm64-${{ env.LLVM_VERSION }}-lto${{ inputs.enable_lto }}-pgo${{ inputs.enable_pgo }}
+          key: stage1-arm64-${{ env.LLVM_VERSION }}-${{ hashFiles('.github/workflows/build-llvm-arm64.yml') }}
 
       - name: Set Stage 1 path (cached)
         if: ${{ steps.stage1-cache.outputs.cache-hit == 'true' }}
@@ -248,7 +248,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ github.workspace }}/stage1-install
-          key: stage1-arm64-${{ env.LLVM_VERSION }}-lto${{ inputs.enable_lto }}-pgo${{ inputs.enable_pgo }}
+          key: stage1-arm64-${{ env.LLVM_VERSION }}-${{ hashFiles('.github/workflows/build-llvm-arm64.yml') }}
 
       # ==========================================================
       # PGO Training: run instrumented Clang via QEMU
