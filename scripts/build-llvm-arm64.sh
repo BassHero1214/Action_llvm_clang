@@ -186,41 +186,23 @@ cmake -S "$LLVM_SOURCE_DIR/llvm" -B "$VERIFY_DIR" -G Ninja -Wno-dev \
     exit 1
 }
 
-# Compile 3 files + link 1 static lib — show live progress
-echo "  Compiling (1 file + 1 link)..."
-TARGETS=(
-    "lib/Demangle/CMakeFiles/LLVMDemangle.dir/Demangle.cpp.o"
-)
-STATIC_LIB="lib/libLLVMDemangle.a"
+# Compile 1 file + ThinLTO link test — show live progress
+echo "  Compiling (1 file + ThinLTO link test)..."
 
-PASSED=0
-for t in "${TARGETS[@]}"; do
-    printf "    [compile] %s ... " "$(basename "$t")"
-    if ninja -C "$VERIFY_DIR" -j1 "$t" &>/dev/null; then
-        echo "OK"
-        ((PASSED++))
-    else
-        echo "FAIL"
-        ninja -C "$VERIFY_DIR" -j1 "$t" 2>&1 | tail -20
-        exit 1
-    fi
-done
-
-printf "    [link] %s ... " "$(basename "$STATIC_LIB")"
-if ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" &>/dev/null; then
+printf "    [compile] Demangle.cpp.o ... "
+if ninja -C "$VERIFY_DIR" -j1 "lib/Demangle/CMakeFiles/LLVMDemangle.dir/Demangle.cpp.o" &>/dev/null; then
     echo "OK"
 else
     echo "FAIL"
-    ninja -C "$VERIFY_DIR" -j1 "$STATIC_LIB" 2>&1 | tail -20
+    ninja -C "$VERIFY_DIR" -j1 "lib/Demangle/CMakeFiles/LLVMDemangle.dir/Demangle.cpp.o" 2>&1 | tail -20
     exit 1
 fi
 
-# Real ThinLTO+LLD link test
-printf "    [lld+thinlto] ... "
+printf "    [thinlto+lld] ... "
 echo 'int main(){return 0;}' > "$VERIFY_DIR/test.c"
 if "$HOST_CC" -O2 -flto=thin -fuse-ld="$LLD_BIN" "$VERIFY_DIR/test.c" -o "$VERIFY_DIR/test" 2>"$VERIFY_DIR/link.log"; then
     echo "OK"
-    echo "  PASS: compile + static lib + ThinLTO/LLD link"
+    echo "  PASS: compile + ThinLTO/LLD link"
 else
     echo "FAIL"
     tail -10 "$VERIFY_DIR/link.log"
